@@ -172,6 +172,65 @@ function requireManager(req, res, next){
   }
 }
 
+function requireEmployee(req, res, next){
+  try {
+    const auth = req.headers['authorization'] || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) return res.status(401).json({ ok:false, error:'missing token' });
+    const user = jwt.verify(token, JWT_SECRET);
+    if (user?.role !== 'manager' && user?.role !== 'staff') {
+      return res.status(403).json({ ok:false, error:'staff or manager role required' });
+    }
+    req.user = user; next();
+  } catch(e){
+    return res.status(401).json({ ok:false, error:'invalid token' });
+  }
+}
+
+// Inventory: set absolute quantity (staff/manager)
+app.post('/inventory/set', requireEmployee, async (req, res) => {
+  const { sku, qty } = req.body || {};
+  const nqty = Number(qty);
+  if (!sku || !Number.isFinite(nqty)) return res.status(400).json({ ok:false, error:'sku and qty required' });
+  if (nqty < 0) return res.status(400).json({ ok:false, error:'qty must be >= 0' });
+  try {
+    const { rows: [row] } = await pool.query(
+      `insert into local_stock(sku, qty) values($1,$2)
+       on conflict (sku) do update set qty=excluded.qty, updated_at=now()
+       returning sku, qty`, [sku, nqty]
+    );
+    res.json({ ok:true, item: row });
+  } catch (e) {
+    res.status(500).json({ ok:false, error:e.message });
+  }
+});
+
+// Inventory: adjust by delta (staff/manager)
+app.post('/inventory/adjust', requireEmployee, async (req, res) => {
+  const { sku, delta } = req.body || {};
+  const ndelta = Number(delta);
+  if (!sku || !Number.isFinite(ndelta)) return res.status(400).json({ ok:false, error:'sku and delta required' });
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const { rows } = await client.query('select qty from local_stock where sku=$1 for update', [sku]);
+    const current = rows.length ? Number(rows[0].qty) : 0;
+    const next = current + ndelta;
+    if (next < 0) { await client.query('rollback'); return res.status(400).json({ ok:false, error:'resulting qty would be negative' }); }
+    const { rows: [row] } = await client.query(
+      `insert into local_stock(sku, qty) values($1,$2)
+       on conflict (sku) do update set qty=excluded.qty, updated_at=now()
+       returning sku, qty`, [sku, next]
+    );
+    await client.query('commit');
+    res.json({ ok:true, item: row });
+  } catch (e) {
+    await client.query('rollback');
+    res.status(500).json({ ok:false, error:e.message });
+  } finally {
+    client.release();
+  }
+});
 app.post('/orders/:id/refund', requireManager, async (req, res) => {
   const orderId = req.params.id;
   const client = await pool.connect();
