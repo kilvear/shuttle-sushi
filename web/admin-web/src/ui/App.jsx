@@ -54,7 +54,8 @@ export default function App(){
         const [o, ob, c, s, m, us, ul] = await Promise.all([
           orders.recent(50).catch(()=>null),
           orders.outboxSummary().catch(()=>null),
-          inventory.stock('central').catch(()=>null),
+          // Compare central view of Store 1 (location='store-001') against live store
+          inventory.stock('store-001').catch(()=>null),
           inventory.stock('store-001').catch(()=>null),
           menu.list().catch(()=>null),
           auth.usersSummary().catch(()=>null),
