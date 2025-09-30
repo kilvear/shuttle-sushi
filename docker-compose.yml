@@ -98,6 +98,7 @@ services:
     environment:
       DATABASE_URL: postgres://store:storepw@store-001-db:5432/store
       JWT_SECRET: ${JWT_SECRET}
+      MENU_API_URL: http://menu-service:3002
       PORT: 3010
     depends_on: [store-001-db]
     ports: ["3010:3010"]

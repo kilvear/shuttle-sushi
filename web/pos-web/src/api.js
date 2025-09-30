@@ -88,3 +88,13 @@ export async function adjustStock(sku, delta){
   }
   return r.json();
 }
+
+export async function cancelOrder(orderId){
+  const r = await fetch(`${STORE_BASE}/orders/${orderId}/pay-failure`, { method: 'POST', headers: { ...authHeaders() } });
+  if (!r.ok) {
+    const err = await r.json().catch(()=>({error:'Cancel failed'}));
+    const e = new Error(err.error || 'Cancel failed');
+    e.status = r.status; throw e;
+  }
+  return r.json();
+}

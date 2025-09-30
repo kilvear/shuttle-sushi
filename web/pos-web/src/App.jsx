@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { fetchMenu, createOrder, paySuccess, refundOrder, fetchRecentOrders, fetchAvailability, setStock, adjustStock } from './api'
+import { fetchMenu, createOrder, paySuccess, refundOrder, fetchRecentOrders, fetchAvailability, setStock, adjustStock, cancelOrder } from './api'
 import { login, register, me } from './auth'
 
 function currency(cents){ return `$${(cents/100).toFixed(2)}` }
@@ -210,13 +210,20 @@ export default function App(){
                     <td align="right">{o.item_count}</td>
                     <td align="right">${(o.total_cents/100).toFixed(2)}</td>
                     <td>{new Date(o.created_at).toLocaleString()}</td>
-                    <td align="center">
-                      {user?.role === 'manager' && o.status === 'PAID' ? (
+                    <td align="center" style={{ display:'flex', gap:8 }}>
+                      {user?.role === 'manager' && o.status === 'PAID' && (
                         <button onClick={async ()=>{
                           setError(null); setStatus(null);
                           try { await refundOrder(o.id); setStatus(`Order ${o.id.slice(0,8)} refunded`) } catch(e){ setError(e.message) }
                         }}>Refund</button>
-                      ) : (
+                      )}
+                      {canUsePOS && o.status === 'PENDING' && (
+                        <button onClick={async ()=>{
+                          setError(null); setStatus(null);
+                          try { await cancelOrder(o.id); setStatus(`Order ${o.id.slice(0,8)} cancelled`) } catch(e){ setError(e.message) }
+                        }}>Cancel</button>
+                      )}
+                      {!((user?.role === 'manager' && o.status==='PAID') || (canUsePOS && o.status==='PENDING')) && (
                         <span style={{color:'#6c757d'}}>—</span>
                       )}
                     </td>

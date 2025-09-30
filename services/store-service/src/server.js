@@ -25,39 +25,69 @@ app.listen(port, () => console.log("store-service on " + port));
 // Simple POS/customer endpoints (store-local)
 const STORE_ID = 'store-001';
 
-// Helper to compute total
-function calcTotal(items = []) {
-  return items.reduce((sum, it) => sum + (Number(it.price_cents) * Number(it.qty)), 0);
+// Price lookup helper (server-side pricing)
+async function fetchPriceMap() {
+  const base = process.env.MENU_API_URL || 'http://menu-service:3002';
+  const r = await fetch(base + '/menu');
+  if (!r.ok) throw new Error('menu-service unavailable');
+  const data = await r.json();
+  const map = new Map();
+  for (const it of (data.items || [])) {
+    // only active items are returned by menu-service
+    map.set(it.sku, Number(it.price_cents));
+  }
+  return map;
 }
 
 // Create local order (guest by default)
 app.post('/orders', async (req, res) => {
-  const { items = [], customer_id = null, is_guest = true } = req.body || {};
-  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ ok:false, error:'items required' });
-  const total = calcTotal(items);
-  const client = await pool.connect();
   try {
-    await client.query('begin');
-    // Generate guest id if needed
-    const guestIdRow = await client.query('select gen_random_uuid() as id');
-    const guest_id = customer_id || guestIdRow.rows[0].id;
-    const { rows: [order] } = await client.query(
-      'insert into local_orders(customer_id,is_guest,total_cents,status) values($1,$2,$3,$4) returning id',
-      [guest_id, is_guest || !customer_id, total, 'PENDING']
-    );
-    for (const it of items) {
-      await client.query(
-        'insert into local_order_items(order_id, sku, qty, price_cents) values($1,$2,$3,$4)',
-        [order.id, it.sku, it.qty, it.price_cents]
-      );
+    const { items = [], customer_id = null, is_guest = true } = req.body || {};
+    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ ok:false, error:'items required' });
+
+    // Authoritative price lookup from menu-service
+    const prices = await fetchPriceMap();
+
+    // Validate items and compute totals with server-side prices
+    const normalized = [];
+    let total = 0;
+    for (const raw of items) {
+      const sku = String(raw.sku || '').trim();
+      const qty = Number(raw.qty);
+      if (!sku || !Number.isFinite(qty) || qty <= 0) return res.status(400).json({ ok:false, error:'invalid item qty/sku' });
+      const price = prices.get(sku);
+      if (!Number.isFinite(price)) return res.status(400).json({ ok:false, error:`unknown sku ${sku}` });
+      normalized.push({ sku, qty, price_cents: price });
+      total += qty * price;
     }
-    await client.query('commit');
-    res.json({ ok:true, id: order.id, customer_id: guest_id, total_cents: total });
+
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      // Generate guest id if needed
+      const guestIdRow = await client.query('select gen_random_uuid() as id');
+      const guest_id = customer_id || guestIdRow.rows[0].id;
+      const { rows: [order] } = await client.query(
+        'insert into local_orders(customer_id,is_guest,total_cents,status) values($1,$2,$3,$4) returning id',
+        [guest_id, is_guest || !customer_id, total, 'PENDING']
+      );
+      for (const it of normalized) {
+        await client.query(
+          'insert into local_order_items(order_id, sku, qty, price_cents) values($1,$2,$3,$4)',
+          [order.id, it.sku, it.qty, it.price_cents]
+        );
+      }
+      await client.query('commit');
+      res.json({ ok:true, id: order.id, customer_id: guest_id, total_cents: total });
+    } catch (e) {
+      await client.query('rollback');
+      res.status(500).json({ ok:false, error:e.message });
+    } finally {
+      client.release();
+    }
   } catch (e) {
-    await client.query('rollback');
-    res.status(500).json({ ok:false, error:e.message });
-  } finally {
-    client.release();
+    const code = e.message && e.message.includes('menu-service') ? 502 : 500;
+    res.status(code).json({ ok:false, error:e.message });
   }
 });
 
