@@ -55,3 +55,36 @@ export async function fetchRecentOrders(limit=50){
   if (!r.ok) throw new Error('Failed to load recent orders');
   return r.json();
 }
+
+// Inventory APIs
+export async function fetchAvailability(){
+  const r = await fetch(`${STORE_BASE}/availability`, { headers: { ...authHeaders() } });
+  if (!r.ok) throw new Error('Failed to load availability');
+  return r.json();
+}
+
+export async function setStock(sku, qty){
+  const r = await fetch(`${STORE_BASE}/inventory/set`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ sku, qty })
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(()=>({error:'Set stock failed'}));
+    throw new Error(err.error || 'Set stock failed');
+  }
+  return r.json();
+}
+
+export async function adjustStock(sku, delta){
+  const r = await fetch(`${STORE_BASE}/inventory/adjust`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ sku, delta })
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(()=>({error:'Adjust stock failed'}));
+    throw new Error(err.error || 'Adjust stock failed');
+  }
+  return r.json();
+}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { fetchMenu, createOrder, paySuccess, refundOrder, fetchRecentOrders } from './api'
+import { fetchMenu, createOrder, paySuccess, refundOrder, fetchRecentOrders, fetchAvailability, setStock, adjustStock } from './api'
 import { login, register, me } from './auth'
 
 function currency(cents){ return `$${(cents/100).toFixed(2)}` }
@@ -15,6 +15,10 @@ export default function App(){
   const [user, setUser] = useState(null)
   const [refundId, setRefundId] = useState('')
   const [recent, setRecent] = useState([])
+  const [stock, setStockList] = useState([])
+  const [setInputs, setSetInputs] = useState({}) // { sku: qty }
+  const [newSku, setNewSku] = useState('')
+  const [newQty, setNewQty] = useState('')
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -31,6 +35,19 @@ export default function App(){
       try {
         const r = await fetchRecentOrders(50)
         if (alive) setRecent(r.orders || [])
+      } catch {}
+    }
+    tick()
+    const id = setInterval(tick, 5000)
+    return () => { alive=false; clearInterval(id) }
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    async function tick(){
+      try {
+        const r = await fetchAvailability()
+        if (alive) setStockList(r.items || [])
       } catch {}
     }
     tick()
@@ -139,6 +156,46 @@ export default function App(){
 
       {canUsePOS && (
         <div style={{ marginTop:24 }}>
+          <h2>Inventory (Store 1)</h2>
+          <div style={{ maxHeight:260, overflow:'auto', border:'1px solid #eee', borderRadius:6, marginBottom:12 }}>
+            <table width="100%" style={{ borderCollapse:'collapse' }}>
+              <thead>
+                <tr><th align="left">SKU</th><th align="right">Qty</th><th>Adjust</th><th>Set</th></tr>
+              </thead>
+              <tbody>
+                {stock.map(s => (
+                  <tr key={s.sku}>
+                    <td>{s.sku}</td>
+                    <td align="right">{s.qty}</td>
+                    <td align="center">
+                      <button onClick={async()=>{ setError(null); setStatus(null); try { await adjustStock(s.sku, -1); const r=await fetchAvailability(); setStockList(r.items||[]) } catch(e){ setError(e.message) } }}>-1</button>
+                      <span style={{display:'inline-block', width:6}} />
+                      <button onClick={async()=>{ setError(null); setStatus(null); try { await adjustStock(s.sku, +1); const r=await fetchAvailability(); setStockList(r.items||[]) } catch(e){ setError(e.message) } }}>+1</button>
+                    </td>
+                    <td align="center">
+                      <input style={{width:80}} type="number" value={setInputs[s.sku] ?? ''} onChange={e=>setSetInputs(prev=>({ ...prev, [s.sku]: e.target.value }))} placeholder="qty" />
+                      <span style={{display:'inline-block', width:6}} />
+                      <button onClick={async()=>{
+                        setError(null); setStatus(null);
+                        const v = Number(setInputs[s.sku])
+                        if (!Number.isFinite(v)) { setError('Enter a number'); return }
+                        try { await setStock(s.sku, v); const r=await fetchAvailability(); setStockList(r.items||[]); setSetInputs(prev=>({ ...prev, [s.sku]: '' })) } catch(e){ setError(e.message) }
+                      }}>Set</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:24 }}>
+            <input placeholder="New SKU" value={newSku} onChange={e=>setNewSku(e.target.value)} />
+            <input placeholder="Qty" type="number" value={newQty} onChange={e=>setNewQty(e.target.value)} style={{width:100}} />
+            <button onClick={async()=>{
+              setError(null); setStatus(null);
+              const v = Number(newQty); if (!newSku || !Number.isFinite(v)) { setError('Enter SKU and qty'); return }
+              try { await setStock(newSku.trim(), v); const r=await fetchAvailability(); setStockList(r.items||[]); setNewSku(''); setNewQty('') } catch(e){ setError(e.message) }
+            }}>Add/Set SKU</button>
+          </div>
           <h2>Transactions</h2>
           <div style={{ maxHeight:260, overflow:'auto', border:'1px solid #eee', borderRadius:6, marginBottom:12 }}>
             <table width="100%" style={{ borderCollapse:'collapse' }}>
