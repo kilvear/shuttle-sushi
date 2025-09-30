@@ -1,0 +1,111 @@
+services:
+  # --- Databases (1 per service) ---
+  auth-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: auth
+      POSTGRES_PASSWORD: authpw
+      POSTGRES_DB: auth
+    volumes:
+      - auth_data:/var/lib/postgresql/data
+      - ./services/auth-service/db/schema.sql:/docker-entrypoint-initdb.d/1.sql:ro
+    ports: ["5433:5432"]
+
+  menu-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: menu
+      POSTGRES_PASSWORD: menupw
+      POSTGRES_DB: menu
+    volumes:
+      - menu_data:/var/lib/postgresql/data
+      - ./services/menu-service/db/schema.sql:/docker-entrypoint-initdb.d/1.sql:ro
+    ports: ["5434:5432"]
+
+  order-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: orders
+      POSTGRES_PASSWORD: orderspw
+      POSTGRES_DB: orders
+    volumes:
+      - order_data:/var/lib/postgresql/data
+      - ./services/order-service/db/schema.sql:/docker-entrypoint-initdb.d/1.sql:ro
+    ports: ["5435:5432"]
+
+  inventory-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: inv
+      POSTGRES_PASSWORD: invpw
+      POSTGRES_DB: inventory
+    volumes:
+      - inventory_data:/var/lib/postgresql/data
+      - ./services/inventory-service/db/schema.sql:/docker-entrypoint-initdb.d/1.sql:ro
+    ports: ["5436:5432"]
+
+  store-001-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: store
+      POSTGRES_PASSWORD: storepw
+      POSTGRES_DB: store
+    volumes:
+      - store001_data:/var/lib/postgresql/data
+      - ./services/store-service/db/schema.sql:/docker-entrypoint-initdb.d/1.sql:ro
+    ports: ["5441:5432"]
+
+  # --- Services ---
+  auth-service:
+    build: ./services/auth-service
+    environment:
+      DATABASE_URL: postgres://auth:authpw@auth-db:5432/auth
+      JWT_SECRET: ${JWT_SECRET}
+      PORT: 3001
+    depends_on: [auth-db]
+    ports: ["3001:3001"]
+
+  menu-service:
+    build: ./services/menu-service
+    environment:
+      DATABASE_URL: postgres://menu:menupw@menu-db:5432/menu
+      PORT: 3002
+    depends_on: [menu-db]
+    ports: ["3002:3002"]
+
+  order-service:
+    build: ./services/order-service
+    environment:
+      DATABASE_URL: postgres://orders:orderspw@order-db:5432/orders
+      STORE_DB_URL: postgres://store:storepw@store-001-db:5432/store
+      PULL_INTERVAL_MS: 3000
+      PORT: 3003
+    depends_on: [order-db, store-001-db]
+    ports: ["3003:3003"]
+
+  inventory-service:
+    build: ./services/inventory-service
+    environment:
+      DATABASE_URL: postgres://inv:invpw@inventory-db:5432/inventory
+      STORE_DB_URL: postgres://store:storepw@store-001-db:5432/store
+      PULL_INTERVAL_MS: 5000
+      PORT: 3004
+    depends_on: [inventory-db, store-001-db]
+    ports: ["3004:3004"]
+
+  store-service:
+    build: ./services/store-service
+    environment:
+      DATABASE_URL: postgres://store:storepw@store-001-db:5432/store
+      PORT: 3010
+    depends_on: [store-001-db]
+    ports: ["3010:3010"]
+
+  
+
+volumes:
+  auth_data: {}
+  menu_data: {}
+  order_data: {}
+  inventory_data: {}
+  store001_data: {}
