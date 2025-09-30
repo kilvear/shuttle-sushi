@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { fetchMenu, createOrder, paySuccess, payFailure } from './api'
+import { login, register, me } from './auth'
 
 function currency(cents){ return `$${(cents/100).toFixed(2)}` }
 
@@ -11,6 +12,12 @@ export default function App(){
   const [placing, setPlacing] = useState(false)
   const [orderId, setOrderId] = useState(null)
   const [status, setStatus] = useState(null)
+  const [user, setUser] = useState(null)
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) me().then(r=>setUser(r.user)).catch(()=>localStorage.removeItem('token'))
+  }, [])
 
   useEffect(() => {
     fetchMenu().then(setMenu).catch(e=>setError(e.message)).finally(()=>setLoading(false))
@@ -21,6 +28,7 @@ export default function App(){
 
   function addToCart(it){
     if (!it.available) return // cannot add if unavailable
+    setError(null); setStatus(null);
     setCart(prev => {
       const existing = prev[it.sku]
       const nextQty = (existing?.qty || 0) + 1
@@ -29,6 +37,7 @@ export default function App(){
   }
 
   function removeFromCart(sku){
+    setError(null); setStatus(null);
     setCart(prev => { const c={...prev}; delete c[sku]; return c })
   }
 
@@ -38,17 +47,23 @@ export default function App(){
       const payloadItems = itemsInCart.map(i => ({ sku: i.sku, qty: i.qty, price_cents: i.price_cents }))
       const { id } = await createOrder(payloadItems)
       setOrderId(id)
-      const res = await (act === 'success' ? paySuccess(id) : payFailure(id))
-      setStatus(`Order ${id} ${res.status}`)
-      if (act === 'success') setCart({})
+      if (act === 'success') {
+        await paySuccess(id)
+        setStatus(`Order ${id} paid successfully`)
+        setCart({})
+      } else {
+        await payFailure(id)
+        setStatus(`Payment failed. Order ${id} cancelled`)
+      }
     } catch (e) {
-      setError(e.message)
+      setError(e.message); setStatus(null)
     } finally { setPlacing(false) }
   }
 
   return (
     <div style={{ fontFamily: 'system-ui, Arial', padding: 16, maxWidth: 900, margin: '0 auto' }}>
       <h1>Customer Ordering</h1>
+      <AuthBar user={user} setUser={setUser} setError={setError} />
       <p style={{color:'#666'}}>Items may show as out of stock when unavailable.</p>
       {loading && <p>Loading…</p>}
       {error && <p style={{color:'crimson'}}>Error: {error}</p>}
@@ -96,3 +111,43 @@ export default function App(){
   )
 }
 
+function AuthBar({ user, setUser, setError }){
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  async function doLogin(){
+    try {
+      setError(null)
+      const r = await login(email, password)
+      localStorage.setItem('token', r.token)
+      setUser(r.user)
+      setEmail(''); setPassword('')
+    } catch(e){ setError(e.message) }
+  }
+  async function doRegister(){
+    try {
+      setError(null)
+      const r = await register(email, password)
+      localStorage.setItem('token', r.token)
+      setUser(r.user)
+      setEmail(''); setPassword('')
+    } catch(e){ setError(e.message) }
+  }
+  function logout(){ localStorage.removeItem('token'); setUser(null); setError(null) }
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
+      {user ? (
+        <>
+          <span>Signed in: <b>{user.email}</b> ({user.role})</span>
+          <button onClick={logout}>Logout</button>
+        </>
+      ) : (
+        <>
+          <input placeholder="email" value={email} onChange={e=>setEmail(e.target.value)} />
+          <input placeholder="password" type="password" value={password} onChange={e=>setPassword(e.target.value)} />
+          <button onClick={doLogin}>Login</button>
+          <button onClick={doRegister}>Register</button>
+        </>
+      )}
+    </div>
+  )
+}

@@ -162,7 +162,7 @@ export default function App(){
       ]} />
 
       <Row cols={[
-        <Panel key="inv" title="Inventory Compare (central vs store-001)">
+        <Panel key="inv" title="Inventory Compare (central vs Store 1)">
           <div style={{ maxHeight:300, overflow:'auto' }}>
             <table width="100%" style={{ borderCollapse:'collapse' }}>
               <thead>
@@ -214,4 +214,3 @@ export default function App(){
     </div>
   )
 }
-
