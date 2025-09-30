@@ -47,3 +47,15 @@ async function mirrorStoreStock() {
 }
 
 setInterval(() => mirrorStoreStock().catch(console.error), Number(process.env.PULL_INTERVAL_MS || 5000));
+
+// --- Read endpoint for dashboard ---
+// GET /stock?location=central|store-001
+app.get('/stock', async (req, res) => {
+  const location = String(req.query.location || 'central');
+  try {
+    const { rows } = await pool.query('select sku, qty, location from stock where location=$1 order by sku asc', [location]);
+    res.json({ ok:true, items: rows });
+  } catch (e) {
+    res.status(500).json({ ok:false, error:e.message });
+  }
+});

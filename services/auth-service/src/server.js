@@ -87,3 +87,32 @@ app.get('/me', (req, res) => {
     res.status(401).json({ ok:false, error:'invalid token' });
   }
 });
+
+// --- Read endpoints for dashboard ---
+// Summary counts by role + total
+app.get('/users/summary', async (_req, res) => {
+  try {
+    const { rows: totalRows } = await pool.query('select count(*)::int as total from users');
+    const total = totalRows[0]?.total || 0;
+    const roles = ['manager','staff','customer'];
+    const by_role = {};
+    for (const r of roles) {
+      const { rows } = await pool.query('select count(*)::int as c from users where role=$1', [r]);
+      by_role[r] = rows[0]?.c || 0;
+    }
+    res.json({ ok:true, total, by_role });
+  } catch (e) {
+    res.status(500).json({ ok:false, error:e.message });
+  }
+});
+
+// Latest users (read-only, no passwords)
+app.get('/users', async (req, res) => {
+  const limit = Math.min(Number(req.query.limit || 50), 200);
+  try {
+    const { rows } = await pool.query('select id, email, role, created_at from users order by created_at desc limit $1', [limit]);
+    res.json({ ok:true, users: rows });
+  } catch (e) {
+    res.status(500).json({ ok:false, error:e.message });
+  }
+});

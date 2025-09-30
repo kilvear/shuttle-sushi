@@ -63,3 +63,42 @@ async function drainStoreOutbox() {
 }
 
 setInterval(() => drainStoreOutbox().catch(console.error), Number(process.env.PULL_INTERVAL_MS || 3000));
+
+// --- Read endpoints for dashboard ---
+// GET /orders?limit=50 -> recent central orders with items
+app.get('/orders', async (req, res) => {
+  const limit = Math.min(Number(req.query.limit || 50), 200);
+  const client = await pool.connect();
+  try {
+    const { rows: orders } = await client.query(
+      'select id, store_id, customer_id, total_cents, status, created_at from orders order by created_at desc limit $1',
+      [limit]
+    );
+    const out = [];
+    for (const o of orders) {
+      const { rows: items } = await client.query(
+        'select sku, qty, price_cents from order_items where order_id=$1', [o.id]
+      );
+      out.push({ ...o, items });
+    }
+    res.json({ ok:true, orders: out });
+  } catch (e) {
+    res.status(500).json({ ok:false, error:e.message });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /outbox/summary -> store outbox status (via central reader)
+app.get('/outbox/summary', async (_req, res) => {
+  try {
+    const { rows: undel } = await storePool.query('select count(*)::int as c from outbox where delivered=false');
+    const undelivered = undel[0]?.c || 0;
+    const { rows: last10 } = await storePool.query(
+      'select id, topic, delivered, left(coalesce(last_error,\'\'), 120) as last_error, created_at from outbox order by id desc limit 10'
+    );
+    res.json({ ok:true, undelivered, last_10: last10 });
+  } catch (e) {
+    res.status(500).json({ ok:false, error:e.message });
+  }
+});
