@@ -97,6 +97,7 @@ services:
     build: ./services/store-service
     environment:
       DATABASE_URL: postgres://store:storepw@store-001-db:5432/store
+      JWT_SECRET: ${JWT_SECRET}
       PORT: 3010
     depends_on: [store-001-db]
     ports: ["3010:3010"]

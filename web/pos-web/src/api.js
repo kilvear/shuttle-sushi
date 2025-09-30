@@ -39,3 +39,19 @@ export async function getOrder(orderId) {
   if (!r.ok) throw new Error('Failed to get order');
   return r.json();
 }
+
+export async function refundOrder(orderId) {
+  const r = await fetch(`${STORE_BASE}/orders/${orderId}/refund`, { method: 'POST', headers: { ...authHeaders() } });
+  if (!r.ok) {
+    const err = await r.json().catch(()=>({error:'Refund failed'}));
+    const e = new Error(err.error || 'Refund failed');
+    e.status = r.status; throw e;
+  }
+  return r.json();
+}
+
+export async function fetchRecentOrders(limit=50){
+  const r = await fetch(`${STORE_BASE}/orders/recent?limit=${limit}`, { headers: { ...authHeaders() } });
+  if (!r.ok) throw new Error('Failed to load recent orders');
+  return r.json();
+}

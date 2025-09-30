@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { fetchMenu, createOrder, paySuccess } from './api'
+import { fetchMenu, createOrder, paySuccess, refundOrder, fetchRecentOrders } from './api'
 import { login, register, me } from './auth'
 
 function currency(cents){ return `$${(cents/100).toFixed(2)}` }
@@ -13,6 +13,8 @@ export default function App(){
   const [orderId, setOrderId] = useState(null)
   const [status, setStatus] = useState(null)
   const [user, setUser] = useState(null)
+  const [refundId, setRefundId] = useState('')
+  const [recent, setRecent] = useState([])
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -21,6 +23,19 @@ export default function App(){
 
   useEffect(() => {
     fetchMenu().then(setMenu).catch(e=>setError(e.message)).finally(()=>setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    async function tick(){
+      try {
+        const r = await fetchRecentOrders(50)
+        if (alive) setRecent(r.orders || [])
+      } catch {}
+    }
+    tick()
+    const id = setInterval(tick, 5000)
+    return () => { alive=false; clearInterval(id) }
   }, [])
 
   const itemsInCart = useMemo(() => Object.values(cart), [cart])
@@ -61,10 +76,18 @@ export default function App(){
     }
   }
 
+  const canUsePOS = !!user && (user.role === 'staff' || user.role === 'manager')
+
   return (
     <div style={{ fontFamily: 'system-ui, Arial', padding: 16, maxWidth: 900, margin: '0 auto' }}>
       <h1>POS</h1>
       <AuthBar user={user} setUser={setUser} setError={setError} />
+      {!user && (
+        <p style={{color:'#856404', background:'#fff3cd', padding:8, borderRadius:6}}>Please sign in to operate the POS.</p>
+      )}
+      {user && !canUsePOS && (
+        <p style={{color:'#721c24', background:'#f8d7da', padding:8, borderRadius:6}}>Insufficient role. POS requires staff or manager.</p>
+      )}
       {loading && <p>Loading menu…</p>}
       {error && <p style={{color:'crimson'}}>Error: {error}</p>}
       {status && <p style={{color:'#155724', background:'#d4edda', padding:8, borderRadius:6}}>{status}</p>}
@@ -79,7 +102,9 @@ export default function App(){
                 <div>{currency(it.price_cents)}</div>
                 <div style={{marginTop:8}}>
                   {it.available ? (
-                    <button onClick={()=>addToCart(it)}>Add</button>
+                    <button disabled={!canUsePOS} onClick={()=> canUsePOS && addToCart(it)}>
+                      {canUsePOS ? 'Add' : 'Add (login required)'}
+                    </button>
                   ) : (
                     <span style={{color:'gray'}}>Out of stock</span>
                   )}
@@ -105,12 +130,62 @@ export default function App(){
           ))}
           <div style={{marginTop:12, fontWeight:600}}>Total: {currency(total)}</div>
           <div style={{marginTop:8}}>
-            <button disabled={itemsInCart.length===0 || placing} onClick={checkout}>
+            <button disabled={!canUsePOS || itemsInCart.length===0 || placing} onClick={checkout}>
               {placing ? 'Placing…' : 'Pay Success'}
             </button>
           </div>
         </div>
       </div>
+
+      {canUsePOS && (
+        <div style={{ marginTop:24 }}>
+          <h2>Transactions</h2>
+          <div style={{ maxHeight:260, overflow:'auto', border:'1px solid #eee', borderRadius:6, marginBottom:12 }}>
+            <table width="100%" style={{ borderCollapse:'collapse' }}>
+              <thead>
+                <tr><th align="left">ID</th><th>Status</th><th align="right">Items</th><th align="right">Total</th><th align="left">Created</th><th>Actions</th></tr>
+              </thead>
+              <tbody>
+                {recent.map(o => (
+                  <tr key={o.id}>
+                    <td>{o.id.slice(0,8)}…</td>
+                    <td>{o.status}</td>
+                    <td align="right">{o.item_count}</td>
+                    <td align="right">${(o.total_cents/100).toFixed(2)}</td>
+                    <td>{new Date(o.created_at).toLocaleString()}</td>
+                    <td align="center">
+                      {user?.role === 'manager' && o.status === 'PAID' ? (
+                        <button onClick={async ()=>{
+                          setError(null); setStatus(null);
+                          try { await refundOrder(o.id); setStatus(`Order ${o.id.slice(0,8)} refunded`) } catch(e){ setError(e.message) }
+                        }}>Refund</button>
+                      ) : (
+                        <span style={{color:'#6c757d'}}>—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <h3>Manager Actions</h3>
+          {user?.role !== 'manager' ? (
+            <p style={{color:'#6c757d'}}>Login as manager to refund orders.</p>
+          ) : (
+            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+              <input placeholder="Order ID" value={refundId} onChange={e=>setRefundId(e.target.value)} style={{ flex:1 }} />
+              <button onClick={async ()=>{
+                setError(null); setStatus(null);
+                try {
+                  const r = await refundOrder(refundId.trim());
+                  setStatus(`Order ${refundId} refunded`);
+                  setRefundId('');
+                } catch(e){ setError(e.message) }
+              }}>Refund Order</button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

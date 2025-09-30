@@ -2,12 +2,14 @@ import express from "express";
 import cors from "cors";
 import pkg from "pg";
 const { Pool } = pkg;
+import jwt from 'jsonwebtoken';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
 
 app.get("/health", async (_, res) => {
   try { await pool.query("select 1"); res.json({ ok: true, service: "store-service" }); }
@@ -111,6 +113,36 @@ app.get('/availability', async (_, res) => {
   }
 });
 
+// List recent local orders for POS viewing (place BEFORE /orders/:id)
+app.get('/orders/recent', async (req, res) => {
+  const limit = Math.min(Number(req.query.limit || 50), 200);
+  const client = await pool.connect();
+  try {
+    const { rows: orders } = await client.query(
+      `select o.id, o.total_cents, o.status, o.created_at
+         from local_orders o
+        order by o.created_at desc
+        limit $1`, [limit]
+    );
+    if (orders.length === 0) return res.json({ ok:true, orders: [] });
+    const ids = orders.map(o => o.id);
+    const { rows: counts } = await client.query(
+      `select order_id, count(*)::int as item_count
+         from local_order_items
+        where order_id = any($1::uuid[])
+        group by order_id`, [ids]
+    );
+    const countById = new Map(counts.map(r => [r.order_id, Number(r.item_count)]));
+    const enriched = orders.map(o => ({ ...o, item_count: countById.get(o.id) || 0 }));
+    res.json({ ok:true, orders: enriched });
+  } catch (e) {
+    console.error('orders/recent error:', e.message);
+    res.status(500).json({ ok:false, error:e.message });
+  } finally {
+    client.release();
+  }
+});
+
 // Get order status/details
 app.get('/orders/:id', async (req, res) => {
   const orderId = req.params.id;
@@ -121,5 +153,44 @@ app.get('/orders/:id', async (req, res) => {
     res.json({ ok:true, order: { ...order, items } });
   } catch (e) {
     res.status(500).json({ ok:false, error:e.message });
+  }
+});
+
+ 
+
+// --- Manager-only: refund a PAID order (inventory reversal)
+function requireManager(req, res, next){
+  try {
+    const auth = req.headers['authorization'] || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) return res.status(401).json({ ok:false, error:'missing token' });
+    const user = jwt.verify(token, JWT_SECRET);
+    if (user?.role !== 'manager') return res.status(403).json({ ok:false, error:'manager role required' });
+    req.user = user; next();
+  } catch(e){
+    return res.status(401).json({ ok:false, error:'invalid token' });
+  }
+}
+
+app.post('/orders/:id/refund', requireManager, async (req, res) => {
+  const orderId = req.params.id;
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const { rows: [order] } = await client.query('select id, status from local_orders where id=$1 for update', [orderId]);
+    if (!order) { await client.query('rollback'); return res.status(404).json({ ok:false, error:'order not found' }); }
+    if (order.status !== 'PAID') { await client.query('rollback'); return res.status(409).json({ ok:false, error:'only PAID orders can be refunded' }); }
+    const { rows: items } = await client.query('select sku, qty from local_order_items where order_id=$1', [orderId]);
+    for (const it of items) {
+      await client.query('update local_stock set qty = qty + $1, updated_at=now() where sku=$2', [it.qty, it.sku]);
+    }
+    await client.query('update local_orders set status=$1 where id=$2', ['CANCELLED', orderId]);
+    await client.query('commit');
+    res.json({ ok:true, id: orderId, status:'CANCELLED' });
+  } catch(e){
+    await client.query('rollback');
+    res.status(500).json({ ok:false, error:e.message });
+  } finally {
+    client.release();
   }
 });
