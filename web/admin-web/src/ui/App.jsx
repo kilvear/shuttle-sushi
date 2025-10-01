@@ -117,20 +117,6 @@ export default function App(){
     <div style={{ fontFamily:'system-ui, Arial', padding:16, display:'grid', gap:12 }}>
       <h1>Admin Dashboard</h1>
 
-      <Panel title="Services Status">
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:8 }}>
-          {['auth','menu','order','inventory','store'].map(k => (
-            <div key={k} style={{ border:'1px solid #eee', borderRadius:6, padding:8 }}>
-              <div style={{fontWeight:600, textTransform:'capitalize'}}>{k}</div>
-              <div style={{ color: svc[k]?.ok ? '#155724' : '#721c24' }}>
-                {svc[k]?.ok ? 'UP' : 'DOWN'}
-              </div>
-              <div style={{ fontSize:12, color:'#555' }}>{svc[k]?.ms ?? 0} ms</div>
-            </div>
-          ))}
-        </div>
-      </Panel>
-
       <Panel title="Reports (Sales)">
         <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
           <label>
@@ -356,6 +342,20 @@ export default function App(){
           )}
         </Panel>
       ]} />
+
+      <Panel title="Services Status">
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:8 }}>
+          {['auth','menu','order','inventory','store'].map(k => (
+            <div key={k} style={{ border:'1px solid #eee', borderRadius:6, padding:8 }}>
+              <div style={{fontWeight:600, textTransform:'capitalize'}}>{k}</div>
+              <div style={{ color: svc[k]?.ok ? '#155724' : '#721c24' }}>
+                {svc[k]?.ok ? 'UP' : 'DOWN'}
+              </div>
+              <div style={{ fontSize:12, color:'#555' }}>{svc[k]?.ms ?? 0} ms</div>
+            </div>
+          ))}
+        </div>
+      </Panel>
     </div>
   )
 }
