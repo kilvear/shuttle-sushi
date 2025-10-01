@@ -3,6 +3,7 @@ import { auth, health, inventory, menu, orders } from '../api'
 import { login as authLogin, register as authRegister, me as authMe } from '../auth'
 import InventoryAdmin from './InventoryAdmin.jsx'
 import UsersAdmin from './UsersAdmin.jsx'
+import ShiftsAdmin from './ShiftsAdmin.jsx'
 
 function Panel({ title, children }){
   return (
@@ -43,7 +44,7 @@ function AuthBar({ authUp, setUser, setErr }){
 }
 
 export default function App(){
-  const [view, setView] = useState('dashboard') // 'dashboard' | 'inv-admin' | 'users-admin'
+  const [view, setView] = useState('dashboard') // 'dashboard' | 'inv-admin' | 'users-admin' | 'shifts-admin'
   const [svc, setSvc] = useState({})
   const [user, setUser] = useState(null)
   const [authUp, setAuthUp] = useState(true)
@@ -249,6 +250,29 @@ export default function App(){
     )
   }
 
+  if (view === 'shifts-admin') {
+    if (!user || user.role !== 'manager') {
+      return (
+        <div style={{ fontFamily:'system-ui, Arial', padding:16, display:'grid', gap:12 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <h1>Shifts Admin</h1>
+            <button onClick={()=>setView('dashboard')}>Back to Dashboard</button>
+          </div>
+          <div style={{ color:'#721c24', background:'#f8d7da', padding:8, borderRadius:6 }}>Access denied. Manager role required.</div>
+        </div>
+      )
+    }
+    return (
+      <div style={{ fontFamily:'system-ui, Arial', padding:16, display:'grid', gap:12 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <h1>Shifts Admin</h1>
+          <button onClick={()=>setView('dashboard')}>Back to Dashboard</button>
+        </div>
+        <ShiftsAdmin />
+      </div>
+    )
+  }
+
   // Not logged in: show login/register only (panels hidden)
   if (!user) {
     return (
@@ -269,8 +293,9 @@ export default function App(){
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <h1>Admin Dashboard</h1>
         <div style={{ display:'flex', gap:8 }}>
-          <button onClick={()=>setView('inv-admin')} disabled={user.role!=='manager'} title={user.role!=='manager' ? 'Manager role required' : ''}>Open Inventory Admin</button>
-          <button onClick={()=>setView('users-admin')} disabled={user.role!=='manager'} title={user.role!=='manager' ? 'Manager role required' : ''}>Open Users Admin</button>
+          <button onClick={()=>setView('inv-admin')} disabled={user.role!=='manager'} title={user.role!=='manager' ? 'Manager role required' : ''}>Inventory Admin</button>
+          <button onClick={()=>setView('users-admin')} disabled={user.role!=='manager'} title={user.role!=='manager' ? 'Manager role required' : ''}>Users Admin</button>
+          <button onClick={()=>setView('shifts-admin')} disabled={user.role!=='manager'} title={user.role!=='manager' ? 'Manager role required' : ''}>Shifts Admin</button>
         </div>
       </div>
 

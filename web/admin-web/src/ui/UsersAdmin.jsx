@@ -8,6 +8,7 @@ export default function UsersAdmin(){
   const [error, setError] = useState('')
   const [authUp, setAuthUp] = useState(true)
   const [limit, setLimit] = useState(50)
+  const [search, setSearch] = useState('')
   const [createForm, setCreateForm] = useState({ email:'', password:'', role:'customer' })
   const [editUserId, setEditUserId] = useState(null)
   const [editForm, setEditForm] = useState({ email:'', password:'', role:'' })
@@ -28,6 +29,12 @@ export default function UsersAdmin(){
   }
 
   useEffect(() => { load() }, [limit])
+
+  const filteredUsers = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter(u => (u.email||'').toLowerCase().includes(q));
+  }, [users, search])
 
   async function doCreate(){
     try {
@@ -65,13 +72,13 @@ export default function UsersAdmin(){
 
   return (
     <div style={{ display:'grid', gap:12 }}>
-      <h2>Users Admin</h2>
+      
       {!authUp && (
         <div style={{color:'#0c5460', background:'#d1ecf1', padding:8, borderRadius:6}}>
           Authentication service unavailable. User management disabled.
         </div>
       )}
-      <div style={{ display:'flex', gap:12, alignItems:'center' }}>
+      <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
         <label>Show last:
           <select value={limit} onChange={e=>setLimit(Number(e.target.value))} style={{ marginLeft:6 }}>
             <option value={50}>50</option>
@@ -79,6 +86,7 @@ export default function UsersAdmin(){
             <option value={200}>200</option>
           </select>
         </label>
+        <label>Search email: <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="e.g. staff" /></label>
       </div>
       {summary && (
         <div style={{ display:'flex', gap:12 }}>
@@ -112,7 +120,7 @@ export default function UsersAdmin(){
               <tr><th align="left">Email</th><th>Role</th><th align="left">Created</th><th>Actions</th></tr>
             </thead>
             <tbody>
-              {users.map(u => (
+              {filteredUsers.map(u => (
                 <tr key={u.id}>
                   <td>{u.email}</td>
                   <td>{u.role}</td>
@@ -147,4 +155,3 @@ export default function UsersAdmin(){
     </div>
   )
 }
-

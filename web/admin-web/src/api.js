@@ -57,6 +57,32 @@ export const auth = {
   }
 };
 
+// Scheduling (auth-service)
+export const schedule = {
+  list: (params={}) => {
+    const p = new URLSearchParams();
+    if (params.store_id) p.set('store_id', params.store_id);
+    if (params.from) p.set('from', params.from);
+    if (params.to) p.set('to', params.to);
+    if (params.limit) p.set('limit', String(params.limit));
+    if (params.offset) p.set('offset', String(params.offset));
+    return jfetch(`${AUTH_BASE}/shifts?${p.toString()}`)
+  },
+  create: (body) => jpost(`${AUTH_BASE}/shifts`, body),
+  update: (id, body) => jpost(`${AUTH_BASE}/shifts/${id}`, body),
+  remove: async (id) => {
+    const res = await fetch(`${AUTH_BASE}/shifts/${id}`, { method:'DELETE' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  },
+  assign: (id, user_id) => jpost(`${AUTH_BASE}/shifts/${id}/assign`, { user_id }),
+  unassign: async (id, user_id) => {
+    const res = await fetch(`${AUTH_BASE}/shifts/${id}/assign/${user_id}`, { method:'DELETE' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
+};
+
 export const orders = {
   recent: (limit=50) => jfetch(`${ORDER_BASE}/orders?limit=${limit}`),
   outboxSummary: () => jfetch(`${ORDER_BASE}/outbox/summary`),

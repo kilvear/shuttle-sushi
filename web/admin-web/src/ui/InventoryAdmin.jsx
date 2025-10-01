@@ -191,7 +191,6 @@ export default function InventoryAdmin(){
 
   return (
     <div style={{ display:'grid', gap:12 }}>
-      <h2>Inventory Admin</h2>
       <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
         <div>
           <button onClick={()=>setView('central')} disabled={view==='central'}>Central</button>{' '}

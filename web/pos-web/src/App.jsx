@@ -20,6 +20,8 @@ export default function App(){
   const [newSku, setNewSku] = useState('')
   const [newQty, setNewQty] = useState('')
   const [offline, setOffline] = useState(false)
+  const [showShifts, setShowShifts] = useState(false)
+  const [shifts, setShifts] = useState([])
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -178,6 +180,35 @@ export default function App(){
           </div>
         </div>
       </div>
+
+      {user && (
+        <div style={{ marginTop:24 }}>
+          <h2>Shifts</h2>
+          <button onClick={async ()=>{
+            if (!showShifts) {
+              try {
+                const from = new Date().toISOString().slice(0,10)
+                const to = new Date(Date.now()+14*864e5).toISOString().slice(0,10)
+                const r = await fetch(`http://localhost:3001/shifts?store_id=store-001&from=${from}&to=${to}&limit=100`)
+                if (r.ok) { const d = await r.json(); setShifts((d.items||[]).filter(s => (s.assignees||[]).some(a=>a.user_id===user.sub))) }
+              } catch {}
+            }
+            setShowShifts(s=>!s)
+          }}>{showShifts ? 'Hide' : 'View'} My Shifts (14 days)</button>
+          {showShifts && (
+            <div style={{ maxHeight:260, overflow:'auto', border:'1px solid #eee', borderRadius:6, marginTop:8 }}>
+              <table width="100%" style={{ borderCollapse:'collapse' }}>
+                <thead><tr><th align="left">Date</th><th>Start</th><th>End</th></tr></thead>
+                <tbody>
+                  {shifts.map(s => (
+                    <tr key={s.id}><td>{new Date(s.date).toLocaleDateString()}</td><td>{s.start_time}</td><td>{s.end_time}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {(!offline && canUsePOS) && (
         <div style={{ marginTop:24 }}>
