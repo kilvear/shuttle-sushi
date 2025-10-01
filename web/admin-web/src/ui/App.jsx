@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { auth, health, inventory, menu, orders } from '../api'
+import InventoryAdmin from './InventoryAdmin.jsx'
 
 function Panel({ title, children }){
   return (
@@ -19,6 +20,7 @@ function Row({ cols }){
 }
 
 export default function App(){
+  const [view, setView] = useState('dashboard') // 'dashboard' | 'inv-admin'
   const [svc, setSvc] = useState({})
   const [ord, setOrd] = useState([])
   const [outbox, setOutbox] = useState(null)
@@ -34,6 +36,45 @@ export default function App(){
   const [repLoading, setRepLoading] = useState(false)
   const [repGroupByStore, setRepGroupByStore] = useState(false)
 
+  function downloadCSV(filename, rows) {
+    const csv = rows.map(r => r.map(x => {
+      if (x == null) return '';
+      const s = String(x);
+      if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportReportCSV(){
+    const now = new Date();
+    const ts = now.toISOString().replace(/[:T]/g,'-').slice(0,16);
+    const fnameBase = `sales_${repPeriod}_${repGroupByStore ? 'by_store_' : ''}${ts}.csv`;
+    const rows = [];
+    if (repGroupByStore && repStoreData.length){
+      rows.push(['store_id','bucket_iso','orders','revenue_cents','revenue_dollars']);
+      for (const s of repStoreData){
+        for (const b of (s.buckets||[])){
+          const iso = new Date(b.bucket).toISOString();
+          rows.push([s.store_id, iso, Number(b.orders||0), Number(b.revenue_cents||0), (Number(b.revenue_cents||0)/100).toFixed(2)]);
+        }
+      }
+    } else if (repData.length) {
+      rows.push(['bucket_iso','orders','revenue_cents','revenue_dollars']);
+      for (const b of repData){
+        const iso = new Date(b.bucket).toISOString();
+        rows.push([iso, Number(b.orders||0), Number(b.revenue_cents||0), (Number(b.revenue_cents||0)/100).toFixed(2)]);
+      }
+    }
+    if (rows.length > 1) downloadCSV(fnameBase, rows);
+  }
+
   const repStoreTotals = useMemo(() => {
     const rows = []
     let grandOrders = 0
@@ -48,8 +89,9 @@ export default function App(){
     return { rows, grand: { orders: grandOrders, revenue_cents: grandRevenue } }
   }, [repStoreData])
 
-  // Poll every 5s
+  // Poll every 5s (only on dashboard view)
   useEffect(() => {
+    if (view !== 'dashboard') return
     let alive = true
     async function tick(){
       try {
@@ -74,8 +116,8 @@ export default function App(){
         const [o, ob, c, s, m, us, ul] = await Promise.all([
           orders.recent(50).catch(()=>null),
           orders.outboxSummary().catch(()=>null),
-          // Compare central view of Store 1 (location='store-001') against live store
-          inventory.stock('store-001').catch(()=>null),
+          // Compare central vs store-001
+          inventory.stock('central').catch(()=>null),
           inventory.stock('store-001').catch(()=>null),
           menu.list().catch(()=>null),
           auth.usersSummary().catch(()=>null),
@@ -94,7 +136,7 @@ export default function App(){
     tick()
     const id = setInterval(tick, 5000)
     return () => { alive = false; clearInterval(id) }
-  }, [])
+  }, [view])
 
   const nameBySku = useMemo(() => {
     const map = new Map()
@@ -113,9 +155,24 @@ export default function App(){
     return Array.from(bySku.values()).sort((a,b)=>a.sku.localeCompare(b.sku))
   }, [central, store])
 
+  if (view === 'inv-admin') {
+    return (
+      <div style={{ fontFamily:'system-ui, Arial', padding:16, display:'grid', gap:12 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <h1>Inventory Admin</h1>
+          <button onClick={()=>setView('dashboard')}>Back to Dashboard</button>
+        </div>
+        <InventoryAdmin />
+      </div>
+    )
+  }
+
   return (
     <div style={{ fontFamily:'system-ui, Arial', padding:16, display:'grid', gap:12 }}>
-      <h1>Admin Dashboard</h1>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <h1>Admin Dashboard</h1>
+        <button onClick={()=>setView('inv-admin')}>Open Inventory Admin</button>
+      </div>
 
       <Panel title="Reports (Sales)">
         <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
@@ -172,6 +229,7 @@ export default function App(){
             } catch(_) { setRepData([]); setRepStoreData([]) }
             finally { setRepLoading(false) }
           }}>Generate</button>
+          <button onClick={exportReportCSV} disabled={!repLoading && (!repData.length && !repStoreData.length)}>Export CSV</button>
         </div>
         <div style={{ marginTop:8 }}>
           {repLoading ? <div>Loading…</div> : (

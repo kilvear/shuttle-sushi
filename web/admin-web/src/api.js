@@ -19,6 +19,21 @@ async function jfetch(url) {
   return data;
 }
 
+async function jpost(url, body) {
+  const t0 = performance.now();
+  const res = await fetch(url, { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify(body||{}) });
+  const dt = performance.now() - t0;
+  if (!res.ok) {
+    const text = await res.text().catch(()=> '');
+    const err = new Error(`HTTP ${res.status} ${res.statusText}`);
+    err.ms = dt; err.body = text;
+    throw err;
+  }
+  const data = await res.json();
+  data._ms = dt;
+  return data;
+}
+
 export const health = {
   auth: () => jfetch(`${AUTH_BASE}/health`),
   menu: () => jfetch(`${MENU_BASE}/health`),
@@ -49,7 +64,29 @@ export const orders = {
 };
 
 export const inventory = {
-  stock: (location='central') => jfetch(`${INV_BASE}/stock?location=${encodeURIComponent(location)}`)
+  stock: (location='central') => jfetch(`${INV_BASE}/stock?location=${encodeURIComponent(location)}`),
+  stores: () => jfetch(`${INV_BASE}/stores`),
+  centralList: (search='', limit=100) => {
+    const p = new URLSearchParams();
+    if (search) p.set('search', search);
+    if (limit) p.set('limit', String(limit));
+    return jfetch(`${INV_BASE}/central/stock?${p.toString()}`)
+  },
+  centralCreate: (sku, qty) => jpost(`${INV_BASE}/central/sku`, { sku, qty }),
+  centralSet: (sku, qty) => jpost(`${INV_BASE}/central/set`, { sku, qty }),
+  centralAdjust: (sku, delta) => jpost(`${INV_BASE}/central/adjust`, { sku, delta }),
+  centralSeedFromStore: (store_id='store-001') => jpost(`${INV_BASE}/central/seed-from-store`, { store_id }),
+  movements: (params={}) => {
+    const p = new URLSearchParams();
+    if (params.sku) p.set('sku', params.sku);
+    if (params.store_id) p.set('store_id', params.store_id);
+    if (params.from) p.set('from', params.from);
+    if (params.to) p.set('to', params.to);
+    if (params.limit) p.set('limit', String(params.limit));
+    if (params.offset) p.set('offset', String(params.offset));
+    return jfetch(`${INV_BASE}/movements?${p.toString()}`)
+  },
+  issue: (sku, qty, store_id, note) => jpost(`${INV_BASE}/central/issue`, { sku, qty, store_id, note })
 };
 
 export const menu = {

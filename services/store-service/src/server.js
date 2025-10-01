@@ -110,7 +110,7 @@ app.post('/orders/:id/pay-success', async (req, res) => {
     const total = items.reduce((s, it) => s + it.qty * it.price_cents, 0);
     await client.query('insert into outbox(topic,payload) values($1,$2::jsonb)', [
       'order.created',
-      JSON.stringify({ store_id: STORE_ID, items, total_cents: total, status: 'PAID' })
+      JSON.stringify({ store_id: STORE_ID, store_order_id: orderId, items, total_cents: total, status: 'PAID' })
     ]);
     await client.query('commit');
     res.json({ ok:true, id: orderId, status:'PAID' });
@@ -274,6 +274,11 @@ app.post('/orders/:id/refund', requireManager, async (req, res) => {
       await client.query('update local_stock set qty = qty + $1, updated_at=now() where sku=$2', [it.qty, it.sku]);
     }
     await client.query('update local_orders set status=$1 where id=$2', ['CANCELLED', orderId]);
+    // Enqueue a cancellation event so central can reflect refund
+    await client.query('insert into outbox(topic,payload) values($1,$2::jsonb)', [
+      'order.cancelled',
+      JSON.stringify({ store_id: STORE_ID, store_order_id: orderId })
+    ]);
     await client.query('commit');
     res.json({ ok:true, id: orderId, status:'CANCELLED' });
   } catch(e){

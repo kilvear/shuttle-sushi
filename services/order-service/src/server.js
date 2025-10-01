@@ -10,7 +10,11 @@ app.use(express.json());
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 app.get("/health", async (_, res) => {
-  try { await pool.query("select 1"); res.json({ ok: true, service: "order-service" }); }
+  try {
+    // Ensure schema for refunds propagation
+    await pool.query("alter table if exists orders add column if not exists store_order_id uuid");
+    res.json({ ok: true, service: "order-service" });
+  }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
@@ -24,13 +28,24 @@ app.listen(port, () => console.log("order-service on " + port));
 const storePool = new Pool({ connectionString: process.env.STORE_DB_URL });
 
 async function importOrderPayload(payload) {
-  const { store_id = "store-001", items = [], total_cents = 0, status = "PAID" } = payload || {};
+  const { store_id = "store-001", store_order_id = null, items = [], total_cents = 0, status = "PAID" } = payload || {};
   const client = await pool.connect(); // central order DB
   try {
     await client.query("begin");
+    // Idempotency: if this store_order_id already imported, return it
+    if (store_order_id) {
+      const existing = await client.query(
+        'select id from orders where store_id=$1 and store_order_id=$2 limit 1',
+        [store_id, store_order_id]
+      );
+      if (existing.rows.length) {
+        await client.query('commit');
+        return existing.rows[0].id;
+      }
+    }
     const { rows: [order] } = await client.query(
-      "insert into orders(store_id,total_cents,status) values($1,$2,$3) returning id",
-      [store_id, total_cents, status]
+      "insert into orders(store_id, store_order_id, total_cents, status) values($1,$2,$3,$4) returning id",
+      [store_id, store_order_id, total_cents, status]
     );
     for (const it of items) {
       await client.query(
@@ -50,11 +65,27 @@ async function importOrderPayload(payload) {
 
 async function drainStoreOutbox() {
   const { rows } = await storePool.query(
-    "select * from outbox where delivered=false and topic='order.created' order by id asc limit 20"
+    "select * from outbox where delivered=false order by id asc limit 20"
   );
   for (const ev of rows) {
     try {
-      await importOrderPayload(ev.payload);
+      if (ev.topic === 'order.created') {
+        await importOrderPayload(ev.payload);
+      } else if (ev.topic === 'order.cancelled') {
+        const p = ev.payload || {};
+        const store_id = p.store_id || 'store-001';
+        const store_order_id = p.store_order_id || null;
+        if (store_order_id) {
+          await pool.query(
+            "update orders set status='CANCELLED' where store_id=$1 and store_order_id=$2",
+            [store_id, store_order_id]
+          );
+        } else {
+          throw new Error('missing store_order_id for order.cancelled');
+        }
+      } else {
+        // Unknown topic: ignore but mark as delivered to avoid deadlock
+      }
       await storePool.query("update outbox set delivered=true, last_error=null where id=$1", [ev.id]);
     } catch (e) {
       await storePool.query("update outbox set last_error=$1 where id=$2", [e.message, ev.id]);
