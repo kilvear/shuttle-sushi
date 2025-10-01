@@ -27,6 +27,26 @@ export default function App(){
   const [catalog, setCatalog] = useState([])
   const [users, setUsers] = useState([])
   const [userSummary, setUserSummary] = useState(null)
+  const [repPeriod, setRepPeriod] = useState('day')
+  const [repCounts, setRepCounts] = useState({ day:21, week:3, month:3 })
+  const [repData, setRepData] = useState([])
+  const [repStoreData, setRepStoreData] = useState([])
+  const [repLoading, setRepLoading] = useState(false)
+  const [repGroupByStore, setRepGroupByStore] = useState(false)
+
+  const repStoreTotals = useMemo(() => {
+    const rows = []
+    let grandOrders = 0
+    let grandRevenue = 0
+    for (const s of repStoreData) {
+      const orders = (s.buckets||[]).reduce((a,b)=>a + Number(b.orders||0), 0)
+      const revenue = (s.buckets||[]).reduce((a,b)=>a + Number(b.revenue_cents||0), 0)
+      rows.push({ store_id: s.store_id, orders, revenue_cents: revenue })
+      grandOrders += orders
+      grandRevenue += revenue
+    }
+    return { rows, grand: { orders: grandOrders, revenue_cents: grandRevenue } }
+  }, [repStoreData])
 
   // Poll every 5s
   useEffect(() => {
@@ -108,6 +128,130 @@ export default function App(){
               <div style={{ fontSize:12, color:'#555' }}>{svc[k]?.ms ?? 0} ms</div>
             </div>
           ))}
+        </div>
+      </Panel>
+
+      <Panel title="Reports (Sales)">
+        <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
+          <label>
+            Period: {" "}
+            <select value={repPeriod} onChange={e=>setRepPeriod(e.target.value)}>
+              <option value="day">Daily (last N days)</option>
+              <option value="week">Weekly (last N weeks)</option>
+              <option value="month">Monthly (last N months)</option>
+            </select>
+          </label>
+          {repPeriod === 'day' && (
+            <label>
+              Days: {" "}
+              <input type="number" min={1} max={180}
+                     value={repCounts.day}
+                     onChange={e=>setRepCounts(v=>({ ...v, day: Number(e.target.value||0) }))} />
+            </label>
+          )}
+          {repPeriod === 'week' && (
+            <label>
+              Weeks: {" "}
+              <input type="number" min={1} max={52}
+                     value={repCounts.week}
+                     onChange={e=>setRepCounts(v=>({ ...v, week: Number(e.target.value||0) }))} />
+            </label>
+          )}
+          {repPeriod === 'month' && (
+            <label>
+              Months: {" "}
+              <input type="number" min={1} max={24}
+                     value={repCounts.month}
+                     onChange={e=>setRepCounts(v=>({ ...v, month: Number(e.target.value||0) }))} />
+            </label>
+          )}
+          <label>
+            <input type="checkbox" checked={repGroupByStore} onChange={e=>setRepGroupByStore(e.target.checked)} /> Group by store
+          </label>
+          <button onClick={async ()=>{
+            setRepLoading(true)
+            try {
+              const opts = repPeriod==='day' ? { days: repCounts.day }
+                         : repPeriod==='week' ? { weeks: repCounts.week }
+                         : { months: repCounts.month };
+              if (repGroupByStore) opts.groupBy = 'store'
+              const r = await orders.reports(repPeriod, opts)
+              if (r.stores) {
+                setRepStoreData(r.stores)
+                setRepData([])
+              } else {
+                setRepData(r.buckets||[])
+                setRepStoreData([])
+              }
+            } catch(_) { setRepData([]); setRepStoreData([]) }
+            finally { setRepLoading(false) }
+          }}>Generate</button>
+        </div>
+        <div style={{ marginTop:8 }}>
+          {repLoading ? <div>Loading…</div> : (
+            <div style={{ maxHeight:300, overflow:'auto', display:'grid', gap:12 }}>
+              {repStoreData.length > 0 ? (
+                <>
+                  <div>
+                    <div style={{ fontWeight:600, margin:'6px 0' }}>Store totals (selected range)</div>
+                    <table width="100%" style={{ borderCollapse:'collapse' }}>
+                      <thead>
+                        <tr><th align="left">Store</th><th align="right">Orders</th><th align="right">Revenue</th></tr>
+                      </thead>
+                      <tbody>
+                        {repStoreTotals.rows.map(r => (
+                          <tr key={r.store_id}>
+                            <td>{r.store_id}</td>
+                            <td align="right">{r.orders}</td>
+                            <td align="right">${(Number(r.revenue_cents||0)/100).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                        <tr>
+                          <td style={{ fontWeight:600 }}>Total</td>
+                          <td align="right" style={{ fontWeight:600 }}>{repStoreTotals.grand.orders}</td>
+                          <td align="right" style={{ fontWeight:600 }}>${(Number(repStoreTotals.grand.revenue_cents||0)/100).toFixed(2)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  {repStoreData.map(s => (
+                    <div key={s.store_id}>
+                      <div style={{ fontWeight:600, margin:'6px 0' }}>Store: {s.store_id}</div>
+                      <table width="100%" style={{ borderCollapse:'collapse' }}>
+                        <thead>
+                          <tr><th align="left">Bucket</th><th align="right">Orders</th><th align="right">Revenue</th></tr>
+                        </thead>
+                        <tbody>
+                          {(s.buckets||[]).map((b, i) => (
+                            <tr key={i}>
+                              <td>{new Date(b.bucket).toLocaleDateString()}</td>
+                              <td align="right">{b.orders}</td>
+                              <td align="right">${(Number(b.revenue_cents||0)/100).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <table width="100%" style={{ borderCollapse:'collapse' }}>
+                  <thead>
+                    <tr><th align="left">Bucket</th><th align="right">Orders</th><th align="right">Revenue</th></tr>
+                  </thead>
+                  <tbody>
+                    {(repData||[]).map((b, i) => (
+                      <tr key={i}>
+                        <td>{new Date(b.bucket).toLocaleDateString()}</td>
+                        <td align="right">{b.orders}</td>
+                        <td align="right">${(Number(b.revenue_cents||0)/100).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
         </div>
       </Panel>
 

@@ -34,7 +34,18 @@ export const auth = {
 
 export const orders = {
   recent: (limit=50) => jfetch(`${ORDER_BASE}/orders?limit=${limit}`),
-  outboxSummary: () => jfetch(`${ORDER_BASE}/outbox/summary`)
+  outboxSummary: () => jfetch(`${ORDER_BASE}/outbox/summary`),
+  reports: (period='day', opts={}) => {
+    const params = new URLSearchParams();
+    if (period) params.set('period', period);
+    if (opts.from) params.set('from', opts.from);
+    if (opts.to) params.set('to', opts.to);
+    if (opts.days) params.set('days', String(opts.days));
+    if (opts.weeks) params.set('weeks', String(opts.weeks));
+    if (opts.months) params.set('months', String(opts.months));
+    if (opts.groupBy === 'store') params.set('group_by', 'store');
+    return jfetch(`${ORDER_BASE}/reports/sales?${params.toString()}`)
+  }
 };
 
 export const inventory = {
@@ -44,4 +55,3 @@ export const inventory = {
 export const menu = {
   list: () => jfetch(`${MENU_BASE}/menu`)
 };
-
