@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { auth, health } from '../api'
 
-export default function UsersAdmin(){
+export default function UsersAdmin({ currentUserEmail='' }){
   const [users, setUsers] = useState([])
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -127,7 +127,7 @@ export default function UsersAdmin(){
                   <td>{new Date(u.created_at).toLocaleString()}</td>
                   <td>
                     <button onClick={()=>{ setEditUserId(u.id); setEditForm({ email:u.email, password:'', role:u.role }) }} disabled={!authUp}>Edit</button>{' '}
-                    <button onClick={()=>doDelete(u.id)} disabled={!authUp}>Delete</button>
+                    <button onClick={()=>doDelete(u.id)} disabled={!authUp || (u.email||'').toLowerCase()===(currentUserEmail||'').toLowerCase()} title={(u.email||'').toLowerCase()===(currentUserEmail||'').toLowerCase() ? 'Cannot delete the currently signed-in user' : ''}>Delete</button>
                   </td>
                 </tr>
               ))}

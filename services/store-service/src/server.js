@@ -12,7 +12,20 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const JWT_SECRET = process.env.JWT_SECRET || 'devsecret';
 
 app.get("/health", async (_, res) => {
-  try { await pool.query("select 1"); res.json({ ok: true, service: "store-service" }); }
+  try {
+    await pool.query("select 1");
+    // Ensure local_items exists (idempotent migration for catalog authority)
+    await pool.query(`
+      create table if not exists local_items(
+        sku text primary key,
+        name text not null,
+        price_cents int not null,
+        is_active boolean default true,
+        updated_at timestamptz default now()
+      );
+    `);
+    res.json({ ok: true, service: "store-service" });
+  }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
@@ -25,17 +38,11 @@ app.listen(port, () => console.log("store-service on " + port));
 // Simple POS/customer endpoints (store-local)
 const STORE_ID = 'store-001';
 
-// Price lookup helper (server-side pricing)
-async function fetchPriceMap() {
-  const base = process.env.MENU_API_URL || 'http://menu-service:3002';
-  const r = await fetch(base + '/menu');
-  if (!r.ok) throw new Error('menu-service unavailable');
-  const data = await r.json();
+// Price lookup helper: from local_items (authoritative at store)
+async function fetchPriceMapFromLocal() {
   const map = new Map();
-  for (const it of (data.items || [])) {
-    // only active items are returned by menu-service
-    map.set(it.sku, Number(it.price_cents));
-  }
+  const { rows } = await pool.query('select sku, price_cents, is_active from local_items');
+  for (const it of rows) { if (it.is_active) map.set(it.sku, Number(it.price_cents)); }
   return map;
 }
 
@@ -45,8 +52,8 @@ app.post('/orders', async (req, res) => {
     const { items = [], customer_id = null, is_guest = true } = req.body || {};
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ ok:false, error:'items required' });
 
-    // Authoritative price lookup from menu-service
-    const prices = await fetchPriceMap();
+    // Authoritative price lookup from local_items
+    const prices = await fetchPriceMapFromLocal();
 
     // Validate items and compute totals with server-side prices
     const normalized = [];
@@ -286,5 +293,84 @@ app.post('/orders/:id/refund', requireManager, async (req, res) => {
     res.status(500).json({ ok:false, error:e.message });
   } finally {
     client.release();
+  }
+});
+// --- Catalog management (manager-only) ---
+function isValidName(name){
+  if (typeof name !== 'string') return false;
+  const trimmed = name.trim();
+  if (trimmed.length < 1 || trimmed.length > 60) return false;
+  return /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,59}$/.test(trimmed);
+}
+
+// List local items
+app.get('/items', async (_req, res) => {
+  try {
+    const { rows } = await pool.query('select sku, name, price_cents, is_active, updated_at from local_items order by sku asc');
+    res.json({ ok:true, items: rows });
+  } catch (e) {
+    res.status(500).json({ ok:false, error:e.message });
+  }
+});
+
+// Create item (manager)
+app.post('/items', requireManager, async (req, res) => {
+  const { sku, name, price_cents, is_active=true } = req.body || {};
+  const p = Number(price_cents);
+  if (!sku || !isValidName(name) || !Number.isInteger(p) || p < 0 || p > 500000) return res.status(400).json({ ok:false, error:'invalid sku/name/price' });
+  try {
+    const { rows } = await pool.query(
+      `insert into local_items(sku, name, price_cents, is_active) values($1,$2,$3,$4)
+       on conflict (sku) do update set name=excluded.name, price_cents=excluded.price_cents, is_active=excluded.is_active, updated_at=now()
+       returning sku, name, price_cents, is_active, updated_at`,
+      [String(sku).trim(), name.trim(), p, !!is_active]
+    );
+    res.json({ ok:true, item: rows[0] });
+  } catch (e) {
+    res.status(400).json({ ok:false, error:e.message });
+  }
+});
+
+// Update item (manager)
+app.patch('/items/:sku', requireManager, async (req, res) => {
+  const sku = req.params.sku;
+  const sets = [];
+  const vals = [];
+  let i = 1;
+  if (req.body.name !== undefined) {
+    if (!isValidName(req.body.name)) return res.status(400).json({ ok:false, error:'invalid name' });
+    sets.push(`name=$${i++}`); vals.push(req.body.name.trim());
+  }
+  if (req.body.price_cents !== undefined) {
+    const p = Number(req.body.price_cents);
+    if (!Number.isInteger(p) || p < 0 || p > 500000) return res.status(400).json({ ok:false, error:'invalid price_cents' });
+    sets.push(`price_cents=$${i++}`); vals.push(p);
+  }
+  if (req.body.is_active !== undefined) { sets.push(`is_active=$${i++}`); vals.push(!!req.body.is_active); }
+  if (!sets.length) return res.json({ ok:true, updated:0 });
+  vals.push(sku);
+  try {
+    const { rows } = await pool.query(`update local_items set ${sets.join(', ')}, updated_at=now() where sku=$${i} returning sku, name, price_cents, is_active, updated_at`, vals);
+    if (!rows.length) {
+      // If not found, try to insert when we have sufficient fields (name and price)
+      const name = req.body.name;
+      const pc = req.body.price_cents;
+      if (name !== undefined && pc !== undefined && isValidName(name)) {
+        const p = Number(pc);
+        if (!Number.isInteger(p) || p < 0 || p > 500000) return res.status(400).json({ ok:false, error:'invalid price_cents' });
+        const { rows: ins } = await pool.query(
+          `insert into local_items(sku, name, price_cents, is_active)
+           values($1,$2,$3,$4)
+           on conflict (sku) do update set name=excluded.name, price_cents=excluded.price_cents, is_active=excluded.is_active, updated_at=now()
+           returning sku, name, price_cents, is_active, updated_at`,
+          [sku, name.trim(), p, (req.body.is_active!==undefined)? !!req.body.is_active : true]
+        );
+        return res.json({ ok:true, item: ins[0] });
+      }
+      return res.status(404).json({ ok:false, error:'not found' });
+    }
+    res.json({ ok:true, item: rows[0] });
+  } catch (e) {
+    res.status(400).json({ ok:false, error:e.message });
   }
 });

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { fetchMenu, createOrder, paySuccess, refundOrder, fetchRecentOrders, fetchAvailability, setStock, adjustStock, cancelOrder } from './api'
+import { fetchMenu, createOrder, paySuccess, refundOrder, fetchRecentOrders, fetchAvailability, setStock, adjustStock, cancelOrder, fetchItems, createItem, updateItem } from './api'
 import { login, register, me } from './auth'
 
-function currency(cents){ return `$${(cents/100).toFixed(2)}` }
+const currencyFmt = new Intl.NumberFormat('en-SG', { style:'currency', currency:'SGD' });
+function currency(cents){ return currencyFmt.format((Number(cents||0))/100) }
 
 export default function App(){
   const [menu, setMenu] = useState([])
@@ -16,9 +17,12 @@ export default function App(){
   const [refundId, setRefundId] = useState('')
   const [recent, setRecent] = useState([])
   const [stock, setStockList] = useState([])
+  const [items, setItems] = useState([])
+  const [editSku, setEditSku] = useState('')
+  const [editName, setEditName] = useState('')
+  const [editPrice, setEditPrice] = useState('')
+  const [editActive, setEditActive] = useState(true)
   const [setInputs, setSetInputs] = useState({}) // { sku: qty }
-  const [newSku, setNewSku] = useState('')
-  const [newQty, setNewQty] = useState('')
   const [offline, setOffline] = useState(false)
   const [showShifts, setShowShifts] = useState(false)
   const [shifts, setShifts] = useState([])
@@ -72,6 +76,15 @@ export default function App(){
     }
     tick()
     const id = setInterval(tick, 5000)
+    return () => { alive=false; clearInterval(id) }
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    async function tick(){
+      try { const r = await fetchItems(); if (alive) setItems(r.items||[]) } catch {}
+    }
+    tick(); const id = setInterval(tick, 10000)
     return () => { alive=false; clearInterval(id) }
   }, [])
 
@@ -173,10 +186,11 @@ export default function App(){
             </div>
           ))}
           <div style={{marginTop:12, fontWeight:600}}>Total: {currency(total)}</div>
-          <div style={{marginTop:8}}>
+          <div style={{marginTop:8, display:'flex', gap:8}}>
             <button disabled={!canSell || itemsInCart.length===0 || placing} onClick={checkout}>
               {placing ? 'Placing…' : 'Pay Success'}
             </button>
+            <button disabled={itemsInCart.length===0} onClick={()=>setCart({})}>Clear cart</button>
           </div>
         </div>
       </div>
@@ -213,45 +227,78 @@ export default function App(){
       {(!offline && canUsePOS) && (
         <div style={{ marginTop:24 }}>
           <h2>Inventory (Store 1)</h2>
+          {user?.role==='manager' && (
+            <div style={{ border:'1px solid #eee', borderRadius:6, padding:8, marginBottom:12 }}>
+              <div style={{ fontWeight:600, marginBottom:6 }}>Create SKU (Manager)</div>
+              <CreateItemForm onCreate={async (sku,name,price)=>{ try{ await createItem(sku,name,price,true); const [a,b]=await Promise.all([fetchAvailability(), fetchItems()]); setStockList(a.items||[]); setItems(b.items||[]) } catch(e){ setError(e.message) } }} />
+            </div>
+          )}
           <div style={{ maxHeight:260, overflow:'auto', border:'1px solid #eee', borderRadius:6, marginBottom:12 }}>
             <table width="100%" style={{ borderCollapse:'collapse' }}>
               <thead>
-                <tr><th align="left">SKU</th><th align="right">Qty</th><th>Adjust</th><th>Set</th></tr>
+                <tr><th align="left">SKU</th><th align="left">Name</th><th align="right">Qty</th><th>Adjust</th><th>Set</th>{user?.role==='manager' && (<th>Manage</th>)}</tr>
               </thead>
               <tbody>
-                {stock.map(s => (
-                  <tr key={s.sku}>
-                    <td>{s.sku}</td>
-                    <td align="right">{s.qty}</td>
-                    <td align="center">
-                      <button onClick={async()=>{ setError(null); setStatus(null); try { await adjustStock(s.sku, -1); const r=await fetchAvailability(); setStockList(r.items||[]) } catch(e){ setError(e.message) } }}>-1</button>
-                      <span style={{display:'inline-block', width:6}} />
-                      <button onClick={async()=>{ setError(null); setStatus(null); try { await adjustStock(s.sku, +1); const r=await fetchAvailability(); setStockList(r.items||[]) } catch(e){ setError(e.message) } }}>+1</button>
-                    </td>
-                    <td align="center">
-                      <input style={{width:80}} type="number" value={setInputs[s.sku] ?? ''} onChange={e=>setSetInputs(prev=>({ ...prev, [s.sku]: e.target.value }))} placeholder="qty" />
-                      <span style={{display:'inline-block', width:6}} />
-                      <button onClick={async()=>{
-                        setError(null); setStatus(null);
-                        const v = Number(setInputs[s.sku])
-                        if (!Number.isFinite(v)) { setError('Enter a number'); return }
-                        try { await setStock(s.sku, v); const r=await fetchAvailability(); setStockList(r.items||[]); setSetInputs(prev=>({ ...prev, [s.sku]: '' })) } catch(e){ setError(e.message) }
-                      }}>Set</button>
-                    </td>
-                  </tr>
-                ))}
+                {stock.map(s => {
+                  const it = items.find(i=>i.sku===s.sku)
+                  const isEditing = editSku === s.sku
+                  return (
+                    <tr key={s.sku}>
+                      <td>{s.sku}</td>
+                      <td>{it?.name || ''}</td>
+                      <td align="right">{s.qty}</td>
+                      <td align="center">
+                        <button onClick={async()=>{ setError(null); setStatus(null); try { await adjustStock(s.sku, -1); const r=await fetchAvailability(); setStockList(r.items||[]) } catch(e){ setError(e.message) } }}>-1</button>
+                        <span style={{display:'inline-block', width:6}} />
+                        <button onClick={async()=>{ setError(null); setStatus(null); try { await adjustStock(s.sku, +1); const r=await fetchAvailability(); setStockList(r.items||[]) } catch(e){ setError(e.message) } }}>+1</button>
+                      </td>
+                      <td align="center">
+                        <input style={{width:80}} type="number" value={setInputs[s.sku] ?? ''} onChange={e=>setSetInputs(prev=>({ ...prev, [s.sku]: e.target.value }))} placeholder="qty" />
+                        <span style={{display:'inline-block', width:6}} />
+                        <button onClick={async()=>{
+                          setError(null); setStatus(null);
+                          const v = Number(setInputs[s.sku])
+                          if (!Number.isFinite(v)) { setError('Enter a number'); return }
+                          try { await setStock(s.sku, v); const r=await fetchAvailability(); setStockList(r.items||[]); setSetInputs(prev=>({ ...prev, [s.sku]: '' })) } catch(e){ setError(e.message) }
+                        }}>Set</button>
+                      </td>
+                      {user?.role==='manager' && (
+                        <td>
+                          {!isEditing ? (
+                            <button onClick={()=>{ setEditSku(s.sku); setEditName(it?.name||''); setEditPrice(String(it?.price_cents??'')); setEditActive(!!(it?.is_active ?? true)); }}>Edit</button>
+                          ) : (
+                            <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+                              <input placeholder="Name" value={editName} onChange={e=>setEditName(e.target.value)} style={{ width:140 }} />
+                              <input placeholder="Price (cents)" type="number" value={editPrice} onChange={e=>setEditPrice(e.target.value)} style={{ width:120 }} />
+                              <label style={{ fontSize:12 }}><input type="checkbox" checked={editActive} onChange={e=>setEditActive(e.target.checked)} /> Active</label>
+                              <button onClick={async ()=>{
+                                setError(null); setStatus(null)
+                                // client validation mirrors server
+                                const name = editName.trim()
+                                const price = Number(editPrice)
+                                if (!name || name.length>60 || !/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,59}$/.test(name)) { setError('Invalid name'); return }
+                                if (!Number.isInteger(price) || price<0 || price>500000) { setError('Invalid price'); return }
+                                try {
+                                  await updateItem(s.sku, { name, price_cents: price, is_active: editActive })
+                                  const [a,b] = await Promise.all([fetchAvailability(), fetchItems()])
+                                  setStockList(a.items||[]); setItems(b.items||[])
+                                  setStatus('Item updated')
+                                  setEditSku('')
+                                } catch(e){ setError(e.message) }
+                              }}>Save</button>
+                              <button onClick={()=>{ setEditSku(''); setEditName(''); setEditPrice(''); }}>Cancel</button>
+                            </div>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
-          <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:24 }}>
-            <input placeholder="New SKU" value={newSku} onChange={e=>setNewSku(e.target.value)} />
-            <input placeholder="Qty" type="number" value={newQty} onChange={e=>setNewQty(e.target.value)} style={{width:100}} />
-            <button onClick={async()=>{
-              setError(null); setStatus(null);
-              const v = Number(newQty); if (!newSku || !Number.isFinite(v)) { setError('Enter SKU and qty'); return }
-              try { await setStock(newSku.trim(), v); const r=await fetchAvailability(); setStockList(r.items||[]); setNewSku(''); setNewQty('') } catch(e){ setError(e.message) }
-            }}>Add/Set SKU</button>
-          </div>
+          {/* Removed legacy Add/Set SKU block to avoid creating stock without catalog
+              Creation should go via the manager-only Create SKU form above */}
           <h2>Transactions</h2>
           <div style={{ maxHeight:260, overflow:'auto', border:'1px solid #eee', borderRadius:6, marginBottom:12 }}>
             <table width="100%" style={{ borderCollapse:'collapse' }}>
@@ -347,6 +394,20 @@ function AuthBar({ user, setUser, setError }){
           <button onClick={doRegister}>Register</button>
         </>
       )}
+    </div>
+  )
+}
+
+function CreateItemForm({ onCreate }){
+  const [sku, setSku] = useState('')
+  const [name, setName] = useState('')
+  const [price, setPrice] = useState('')
+  return (
+    <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+      <input placeholder="SKU (e.g. DRINK-GREENTEA)" value={sku} onChange={e=>setSku(e.target.value)} />
+      <input placeholder="Name" value={name} onChange={e=>setName(e.target.value)} />
+      <input placeholder="Price (cents)" type="number" value={price} onChange={e=>setPrice(e.target.value)} style={{ width:140 }} />
+      <button onClick={()=>{ const p = Number(price); if(!sku||!name||!Number.isInteger(p)||p<0){ return; } onCreate(sku.trim(), name.trim(), p); setSku(''); setName(''); setPrice('') }}>Create</button>
     </div>
   )
 }

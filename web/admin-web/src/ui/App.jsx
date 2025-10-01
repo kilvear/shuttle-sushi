@@ -62,6 +62,10 @@ export default function App(){
   const [repStoreData, setRepStoreData] = useState([])
   const [repLoading, setRepLoading] = useState(false)
   const [repGroupByStore, setRepGroupByStore] = useState(false)
+  // Formatting helpers
+  const fmtCurrency = useMemo(() => new Intl.NumberFormat('en-SG', { style:'currency', currency:'SGD' }), [])
+  function money(cents){ return fmtCurrency.format((Number(cents||0))/100) }
+  function fmtDateTime(s){ const d = new Date(s); const Y=d.getFullYear(); const M=String(d.getMonth()+1).padStart(2,'0'); const D=String(d.getDate()).padStart(2,'0'); const h=String(d.getHours()).padStart(2,'0'); const m=String(d.getMinutes()).padStart(2,'0'); return `${Y}-${M}-${D} ${h}:${m}` }
 
   function downloadCSV(filename, rows) {
     const csv = rows.map(r => r.map(x => {
@@ -245,7 +249,7 @@ export default function App(){
           <h1>Users Admin</h1>
           <button onClick={()=>setView('dashboard')}>Back to Dashboard</button>
         </div>
-        <UsersAdmin />
+        <UsersAdmin currentUserEmail={user?.email||''} />
       </div>
     )
   }
@@ -418,7 +422,7 @@ export default function App(){
                       <tr key={i}>
                         <td>{new Date(b.bucket).toLocaleDateString()}</td>
                         <td align="right">{b.orders}</td>
-                        <td align="right">${(Number(b.revenue_cents||0)/100).toFixed(2)}</td>
+                        <td align="right">{money(b.revenue_cents)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -443,9 +447,9 @@ export default function App(){
                       <td>{o.id.slice(0,8)}…</td>
                       <td>{o.store_id}</td>
                       <td>{o.status}</td>
-                      <td align="right">${(o.total_cents/100).toFixed(2)}</td>
+                      <td align="right">{money(o.total_cents)}</td>
                       <td align="center">{o.items?.length||0}</td>
-                      <td>{new Date(o.created_at).toLocaleString()}</td>
+                      <td>{fmtDateTime(o.created_at)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -469,7 +473,7 @@ export default function App(){
                         <td>{e.topic}</td>
                         <td>{String(e.delivered)}</td>
                         <td style={{color:'#721c24'}}>{e.last_error||''}</td>
-                        <td>{new Date(e.created_at).toLocaleString()}</td>
+                        <td>{fmtDateTime(e.created_at)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -520,7 +524,7 @@ export default function App(){
                       <tr key={u.id}>
                         <td>{u.email}</td>
                         <td>{u.role}</td>
-                        <td>{new Date(u.created_at).toLocaleString()}</td>
+                        <td>{fmtDateTime(u.created_at)}</td>
                       </tr>
                     ))}
                   </tbody>

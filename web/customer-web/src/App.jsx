@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { fetchMenu, createOrder, paySuccess, payFailure } from './api'
 import { login, register, me } from './auth'
 
-function currency(cents){ return `$${(cents/100).toFixed(2)}` }
+const currencyFmt = new Intl.NumberFormat('en-SG', { style:'currency', currency:'SGD' });
+function currency(cents){ return currencyFmt.format((Number(cents||0))/100) }
 
 export default function App(){
   const [menu, setMenu] = useState([])
@@ -106,6 +107,7 @@ export default function App(){
         <button disabled={itemsInCart.length===0 || placing} onClick={()=>placeAnd('failure')}>
           {placing ? 'Processing…' : 'Pay Failure'}
         </button>
+        <button disabled={itemsInCart.length===0} onClick={()=>setCart({})}>Clear cart</button>
       </div>
     </div>
   )

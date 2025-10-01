@@ -63,6 +63,33 @@ export async function fetchAvailability(){
   return r.json();
 }
 
+// Catalog APIs (manager-only for writes)
+export async function fetchItems(){
+  const r = await fetch(`${STORE_BASE}/items`, { headers: { ...authHeaders() } });
+  if (!r.ok) throw new Error('Failed to load items');
+  return r.json();
+}
+
+export async function createItem(sku, name, price_cents, is_active=true){
+  const r = await fetch(`${STORE_BASE}/items`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ sku, name, price_cents, is_active })
+  });
+  if (!r.ok) { const e = await r.json().catch(()=>({error:'Create item failed'})); throw new Error(e.error||'Create item failed'); }
+  return r.json();
+}
+
+export async function updateItem(sku, body){
+  const r = await fetch(`${STORE_BASE}/items/${encodeURIComponent(sku)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body||{})
+  });
+  if (!r.ok) { const e = await r.json().catch(()=>({error:'Update item failed'})); throw new Error(e.error||'Update item failed'); }
+  return r.json();
+}
+
 export async function setStock(sku, qty){
   const r = await fetch(`${STORE_BASE}/inventory/set`, {
     method: 'POST',

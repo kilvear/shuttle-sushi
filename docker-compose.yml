@@ -69,8 +69,9 @@ services:
     build: ./services/menu-service
     environment:
       DATABASE_URL: postgres://menu:menupw@menu-db:5432/menu
+      STORE_DB_URL: postgres://store:storepw@store-001-db:5432/store
       PORT: 3002
-    depends_on: [menu-db]
+    depends_on: [menu-db, store-001-db]
     ports: ["3002:3002"]
 
   order-service:

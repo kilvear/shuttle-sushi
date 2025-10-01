@@ -17,6 +17,14 @@ create table if not exists local_stock(
   qty int not null default 0,
   updated_at timestamptz default now()
 );
+-- Local catalog: source of truth for names and prices at the store
+create table if not exists local_items(
+  sku text primary key,
+  name text not null,
+  price_cents int not null,
+  is_active boolean default true,
+  updated_at timestamptz default now()
+);
 -- Seed initial stock for store-001 (idempotent)
 insert into local_stock(sku, qty) values
   ('SUSHI-SALMON', 20),

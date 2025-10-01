@@ -106,7 +106,7 @@ export default function ShiftsAdmin(){
             <tbody>
               {rows.map(s => (
                 <tr key={s.id}>
-                  <td>{new Date(s.date).toLocaleDateString()}</td>
+                  <td>{String(s.date).slice(0,10)}</td>
                   <td>{s.start_time}</td>
                   <td>{s.end_time}</td>
                   <td>{s.role_required}</td>
