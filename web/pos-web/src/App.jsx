@@ -19,6 +19,7 @@ export default function App(){
   const [setInputs, setSetInputs] = useState({}) // { sku: qty }
   const [newSku, setNewSku] = useState('')
   const [newQty, setNewQty] = useState('')
+  const [offline, setOffline] = useState(false)
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -39,6 +40,23 @@ export default function App(){
     }
     tick()
     const id = setInterval(tick, 5000)
+    return () => { alive=false; clearInterval(id) }
+  }, [])
+
+  // Detect auth availability to enable Offline Sales Mode
+  useEffect(() => {
+    let alive = true
+    async function ping(){
+      try {
+        const r = await fetch('http://localhost:3001/health')
+        const ok = r.ok && (await r.json().catch(()=>({ok:false}))).ok
+        if (alive) setOffline(!ok)
+      } catch {
+        if (alive) setOffline(true)
+      }
+    }
+    ping()
+    const id = setInterval(ping, 5000)
     return () => { alive=false; clearInterval(id) }
   }, [])
 
@@ -94,15 +112,22 @@ export default function App(){
   }
 
   const canUsePOS = !!user && (user.role === 'staff' || user.role === 'manager')
+  const canSell = offline || canUsePOS
 
   return (
     <div style={{ fontFamily: 'system-ui, Arial', padding: 16, maxWidth: 900, margin: '0 auto' }}>
       <h1>POS</h1>
-      <AuthBar user={user} setUser={setUser} setError={setError} />
-      {!user && (
+      {offline ? (
+        <div style={{color:'#0c5460', background:'#d1ecf1', padding:8, borderRadius:6, marginBottom:12}}>
+          Offline Sales Mode: auth unavailable. Sales only; refunds/inventory disabled.
+        </div>
+      ) : (
+        <AuthBar user={user} setUser={setUser} setError={setError} />
+      )}
+      {!offline && !user && (
         <p style={{color:'#856404', background:'#fff3cd', padding:8, borderRadius:6}}>Please sign in to operate the POS.</p>
       )}
-      {user && !canUsePOS && (
+      {!offline && user && !canUsePOS && (
         <p style={{color:'#721c24', background:'#f8d7da', padding:8, borderRadius:6}}>Insufficient role. POS requires staff or manager.</p>
       )}
       {loading && <p>Loading menu…</p>}
@@ -119,8 +144,8 @@ export default function App(){
                 <div>{currency(it.price_cents)}</div>
                 <div style={{marginTop:8}}>
                   {it.available ? (
-                    <button disabled={!canUsePOS} onClick={()=> canUsePOS && addToCart(it)}>
-                      {canUsePOS ? 'Add' : 'Add (login required)'}
+                    <button disabled={!canSell} onClick={()=> canSell && addToCart(it)}>
+                      {canSell ? 'Add' : 'Add (login required)'}
                     </button>
                   ) : (
                     <span style={{color:'gray'}}>Out of stock</span>
@@ -147,14 +172,14 @@ export default function App(){
           ))}
           <div style={{marginTop:12, fontWeight:600}}>Total: {currency(total)}</div>
           <div style={{marginTop:8}}>
-            <button disabled={!canUsePOS || itemsInCart.length===0 || placing} onClick={checkout}>
+            <button disabled={!canSell || itemsInCart.length===0 || placing} onClick={checkout}>
               {placing ? 'Placing…' : 'Pay Success'}
             </button>
           </div>
         </div>
       </div>
 
-      {canUsePOS && (
+      {(!offline && canUsePOS) && (
         <div style={{ marginTop:24 }}>
           <h2>Inventory (Store 1)</h2>
           <div style={{ maxHeight:260, overflow:'auto', border:'1px solid #eee', borderRadius:6, marginBottom:12 }}>
@@ -211,19 +236,19 @@ export default function App(){
                     <td align="right">${(o.total_cents/100).toFixed(2)}</td>
                     <td>{new Date(o.created_at).toLocaleString()}</td>
                     <td align="center" style={{ display:'flex', gap:8 }}>
-                      {user?.role === 'manager' && o.status === 'PAID' && (
+                      {!offline && user?.role === 'manager' && o.status === 'PAID' && (
                         <button onClick={async ()=>{
                           setError(null); setStatus(null);
                           try { await refundOrder(o.id); setStatus(`Order ${o.id.slice(0,8)} refunded`) } catch(e){ setError(e.message) }
                         }}>Refund</button>
                       )}
-                      {canUsePOS && o.status === 'PENDING' && (
+                      {!offline && canUsePOS && o.status === 'PENDING' && (
                         <button onClick={async ()=>{
                           setError(null); setStatus(null);
                           try { await cancelOrder(o.id); setStatus(`Order ${o.id.slice(0,8)} cancelled`) } catch(e){ setError(e.message) }
                         }}>Cancel</button>
                       )}
-                      {!((user?.role === 'manager' && o.status==='PAID') || (canUsePOS && o.status==='PENDING')) && (
+                      {!((!offline && user?.role === 'manager' && o.status==='PAID') || (!offline && canUsePOS && o.status==='PENDING')) && (
                         <span style={{color:'#6c757d'}}>—</span>
                       )}
                     </td>
@@ -232,10 +257,10 @@ export default function App(){
               </tbody>
             </table>
           </div>
-          <h3>Manager Actions</h3>
-          {user?.role !== 'manager' ? (
+          {!offline && <h3>Manager Actions</h3>}
+          {!offline && user?.role !== 'manager' ? (
             <p style={{color:'#6c757d'}}>Login as manager to refund orders.</p>
-          ) : (
+          ) : (!offline && (
             <div style={{ display:'flex', gap:8, alignItems:'center' }}>
               <input placeholder="Order ID" value={refundId} onChange={e=>setRefundId(e.target.value)} style={{ flex:1 }} />
               <button onClick={async ()=>{
@@ -247,7 +272,7 @@ export default function App(){
                 } catch(e){ setError(e.message) }
               }}>Refund Order</button>
             </div>
-          )}
+          ))}
         </div>
       )}
     </div>

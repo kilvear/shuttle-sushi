@@ -116,3 +116,58 @@ app.get('/users', async (req, res) => {
     res.status(500).json({ ok:false, error:e.message });
   }
 });
+
+// --- Administrative endpoints (simulated behind firewall; no auth enforced here) ---
+// Create user
+app.post('/users', async (req, res) => {
+  const { email, password, role } = req.body || {};
+  const roles = new Set(['manager','staff','customer']);
+  if (!email || !password || !roles.has(role)) return res.status(400).json({ ok:false, error:'email, password and valid role required' });
+  try {
+    const hash = await bcrypt.hash(password, 10);
+    const { rows: [user] } = await pool.query(
+      'insert into users(email,password_hash,role) values($1,$2,$3) returning id,email,role,created_at',
+      [email, hash, role]
+    );
+    res.json({ ok:true, user });
+  } catch (e) {
+    res.status(400).json({ ok:false, error:e.message });
+  }
+});
+
+// Update user (email?, password?, role?)
+app.patch('/users/:id', async (req, res) => {
+  const id = req.params.id;
+  const { email, password, role } = req.body || {};
+  const roles = new Set(['manager','staff','customer']);
+  if (role && !roles.has(role)) return res.status(400).json({ ok:false, error:'invalid role' });
+  try {
+    let hash = null;
+    if (password) hash = await bcrypt.hash(password, 10);
+    const sets = [];
+    const vals = [];
+    let i = 1;
+    if (email) { sets.push(`email=$${i++}`); vals.push(email); }
+    if (hash) { sets.push(`password_hash=$${i++}`); vals.push(hash); }
+    if (role) { sets.push(`role=$${i++}`); vals.push(role); }
+    if (sets.length === 0) return res.json({ ok:true, updated: 0 });
+    vals.push(id);
+    const sql = `update users set ${sets.join(', ') } where id=$${i} returning id,email,role,created_at`;
+    const { rows } = await pool.query(sql, vals);
+    if (rows.length === 0) return res.status(404).json({ ok:false, error:'not found' });
+    res.json({ ok:true, user: rows[0] });
+  } catch (e) {
+    res.status(400).json({ ok:false, error:e.message });
+  }
+});
+
+// Delete user
+app.delete('/users/:id', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const r = await pool.query('delete from users where id=$1', [id]);
+    res.json({ ok:true, deleted: r.rowCount });
+  } catch (e) {
+    res.status(400).json({ ok:false, error:e.message });
+  }
+});

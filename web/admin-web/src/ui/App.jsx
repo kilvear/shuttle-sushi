@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { auth, health, inventory, menu, orders } from '../api'
+import { login as authLogin, register as authRegister, me as authMe } from '../auth'
 import InventoryAdmin from './InventoryAdmin.jsx'
+import UsersAdmin from './UsersAdmin.jsx'
 
 function Panel({ title, children }){
   return (
@@ -19,9 +21,33 @@ function Row({ cols }){
   )
 }
 
+function AuthBar({ authUp, setUser, setErr }){
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  async function doLogin(){
+    try { setErr(''); const r = await authLogin(email, password); localStorage.setItem('token', r.token); setUser(r.user); setEmail(''); setPassword(''); }
+    catch(e){ setErr(e.message) }
+  }
+  async function doRegister(){
+    try { setErr(''); const r = await authRegister(email, password); localStorage.setItem('token', r.token); setUser(r.user); setEmail(''); setPassword(''); }
+    catch(e){ setErr(e.message) }
+  }
+  return (
+    <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+      <input placeholder="email" value={email} onChange={e=>setEmail(e.target.value)} disabled={!authUp} />
+      <input placeholder="password" type="password" value={password} onChange={e=>setPassword(e.target.value)} disabled={!authUp} />
+      <button onClick={doLogin} disabled={!authUp}>Login</button>
+      <button onClick={doRegister} disabled={!authUp}>Register</button>
+    </div>
+  )
+}
+
 export default function App(){
-  const [view, setView] = useState('dashboard') // 'dashboard' | 'inv-admin'
+  const [view, setView] = useState('dashboard') // 'dashboard' | 'inv-admin' | 'users-admin'
   const [svc, setSvc] = useState({})
+  const [user, setUser] = useState(null)
+  const [authUp, setAuthUp] = useState(true)
+  const [authErr, setAuthErr] = useState('')
   const [ord, setOrd] = useState([])
   const [outbox, setOutbox] = useState(null)
   const [central, setCentral] = useState([])
@@ -89,9 +115,29 @@ export default function App(){
     return { rows, grand: { orders: grandOrders, revenue_cents: grandRevenue } }
   }, [repStoreData])
 
-  // Poll every 5s (only on dashboard view)
+  // Initialize auth (token) and poll auth health
   useEffect(() => {
-    if (view !== 'dashboard') return
+    let alive = true
+    async function init(){
+      // auth health
+      try { const r = await health.auth(); if (alive) setAuthUp(!!r.ok) } catch { if (alive) setAuthUp(false) }
+      // token
+      try {
+        const token = localStorage.getItem('token')
+        if (token) {
+          const r = await authMe();
+          if (alive) setUser(r.user)
+        }
+      } catch(e){ if (alive) { setUser(null); if (String(e.message||'').includes('unavailable')) setAuthErr('Authentication service is unavailable.'); } }
+    }
+    init()
+    const id = setInterval(async () => { try { const r = await health.auth(); if (alive) setAuthUp(!!r.ok) } catch { if (alive) setAuthUp(false) } }, 5000)
+    return () => { alive = false; clearInterval(id) }
+  }, [])
+
+  // Poll every 5s (only on dashboard view and after login)
+  useEffect(() => {
+    if (view !== 'dashboard' || !user) return
     let alive = true
     async function tick(){
       try {
@@ -136,7 +182,7 @@ export default function App(){
     tick()
     const id = setInterval(tick, 5000)
     return () => { alive = false; clearInterval(id) }
-  }, [view])
+  }, [view, user])
 
   const nameBySku = useMemo(() => {
     const map = new Map()
@@ -155,7 +201,20 @@ export default function App(){
     return Array.from(bySku.values()).sort((a,b)=>a.sku.localeCompare(b.sku))
   }, [central, store])
 
+  
+
   if (view === 'inv-admin') {
+    if (!user || user.role !== 'manager') {
+      return (
+        <div style={{ fontFamily:'system-ui, Arial', padding:16, display:'grid', gap:12 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <h1>Inventory Admin</h1>
+            <button onClick={()=>setView('dashboard')}>Back to Dashboard</button>
+          </div>
+          <div style={{ color:'#721c24', background:'#f8d7da', padding:8, borderRadius:6 }}>Access denied. Manager role required.</div>
+        </div>
+      )
+    }
     return (
       <div style={{ fontFamily:'system-ui, Arial', padding:16, display:'grid', gap:12 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -167,11 +226,57 @@ export default function App(){
     )
   }
 
+  if (view === 'users-admin') {
+    if (!user || user.role !== 'manager') {
+      return (
+        <div style={{ fontFamily:'system-ui, Arial', padding:16, display:'grid', gap:12 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <h1>Users Admin</h1>
+            <button onClick={()=>setView('dashboard')}>Back to Dashboard</button>
+          </div>
+          <div style={{ color:'#721c24', background:'#f8d7da', padding:8, borderRadius:6 }}>Access denied. Manager role required.</div>
+        </div>
+      )
+    }
+    return (
+      <div style={{ fontFamily:'system-ui, Arial', padding:16, display:'grid', gap:12 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <h1>Users Admin</h1>
+          <button onClick={()=>setView('dashboard')}>Back to Dashboard</button>
+        </div>
+        <UsersAdmin />
+      </div>
+    )
+  }
+
+  // Not logged in: show login/register only (panels hidden)
+  if (!user) {
+    return (
+      <div style={{ fontFamily:'system-ui, Arial', padding:16, display:'grid', gap:12 }}>
+        <h1>Admin Dashboard</h1>
+        {!authUp && (
+          <div style={{color:'#0c5460', background:'#d1ecf1', padding:8, borderRadius:6}}>Authentication service unavailable. Please try again later.</div>
+        )}
+        <AuthBar authUp={authUp} setUser={setUser} setErr={setAuthErr} />
+        {authErr && <div style={{ color:'crimson' }}>{authErr}</div>}
+        <div style={{ color:'#6c757d' }}>Sign in to view the dashboard.</div>
+      </div>
+    )
+  }
+
   return (
     <div style={{ fontFamily:'system-ui, Arial', padding:16, display:'grid', gap:12 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <h1>Admin Dashboard</h1>
-        <button onClick={()=>setView('inv-admin')}>Open Inventory Admin</button>
+        <div style={{ display:'flex', gap:8 }}>
+          <button onClick={()=>setView('inv-admin')} disabled={user.role!=='manager'} title={user.role!=='manager' ? 'Manager role required' : ''}>Open Inventory Admin</button>
+          <button onClick={()=>setView('users-admin')} disabled={user.role!=='manager'} title={user.role!=='manager' ? 'Manager role required' : ''}>Open Users Admin</button>
+        </div>
+      </div>
+
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div>Signed in: <b>{user.email||''}</b> ({user.role})</div>
+        <button onClick={()=>{ localStorage.removeItem('token'); setUser(null) }}>Logout</button>
       </div>
 
       <Panel title="Reports (Sales)">

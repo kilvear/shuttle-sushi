@@ -44,7 +44,17 @@ export const health = {
 
 export const auth = {
   usersSummary: () => jfetch(`${AUTH_BASE}/users/summary`),
-  users: (limit=50) => jfetch(`${AUTH_BASE}/users?limit=${limit}`)
+  users: (limit=50) => jfetch(`${AUTH_BASE}/users?limit=${limit}`),
+  createUser: (email, password, role) => jpost(`${AUTH_BASE}/users`, { email, password, role }),
+  updateUser: (id, body) => jpost(`${AUTH_BASE}/users/${id.replaceAll('"','')}`, body).catch(async e => { throw e }),
+  // Use fetch with DELETE
+  deleteUser: async (id) => {
+    const t0 = performance.now();
+    const res = await fetch(`${AUTH_BASE}/users/${id}`, { method:'DELETE' });
+    const dt = performance.now() - t0;
+    if (!res.ok) { const text = await res.text().catch(()=> ''); const err = new Error(`HTTP ${res.status} ${res.statusText}`); err.ms = dt; err.body = text; throw err; }
+    const data = await res.json(); data._ms = dt; return data;
+  }
 };
 
 export const orders = {
