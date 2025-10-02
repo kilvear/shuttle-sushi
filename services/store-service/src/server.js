@@ -325,6 +325,12 @@ app.post('/items', requireManager, async (req, res) => {
        returning sku, name, price_cents, is_active, updated_at`,
       [String(sku).trim(), name.trim(), p, !!is_active]
     );
+    // Ensure a stock row exists so the item appears in inventory even at qty 0
+    await pool.query(
+      `insert into local_stock(sku, qty) values($1, 0)
+       on conflict (sku) do nothing`,
+      [String(sku).trim()]
+    );
     res.json({ ok:true, item: rows[0] });
   } catch (e) {
     res.status(400).json({ ok:false, error:e.message });
@@ -365,10 +371,22 @@ app.patch('/items/:sku', requireManager, async (req, res) => {
            returning sku, name, price_cents, is_active, updated_at`,
           [sku, name.trim(), p, (req.body.is_active!==undefined)? !!req.body.is_active : true]
         );
+        // Ensure a stock row exists for newly inserted item
+        await pool.query(
+          `insert into local_stock(sku, qty) values($1, 0)
+           on conflict (sku) do nothing`,
+          [sku]
+        );
         return res.json({ ok:true, item: ins[0] });
       }
       return res.status(404).json({ ok:false, error:'not found' });
     }
+    // Also ensure a stock row exists for existing items that might be missing stock
+    await pool.query(
+      `insert into local_stock(sku, qty) values($1, 0)
+       on conflict (sku) do nothing`,
+      [sku]
+    );
     res.json({ ok:true, item: rows[0] });
   } catch (e) {
     res.status(400).json({ ok:false, error:e.message });

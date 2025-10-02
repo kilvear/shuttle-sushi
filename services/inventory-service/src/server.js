@@ -19,9 +19,12 @@ async function ensureSchemaAndMigrate() {
       create table if not exists central_stock(
         sku text primary key,
         qty int not null default 0,
+        is_active boolean not null default true,
         updated_at timestamptz default now()
       );
     `);
+    // Backward-compatible migration if column was missing
+    await client.query(`alter table central_stock add column if not exists is_active boolean not null default true`);
     await client.query(`
       create table if not exists store_stock_mirror(
         store_id text not null,
@@ -152,7 +155,7 @@ app.get('/stock', async (req, res) => {
   const location = String(req.query.location || 'central');
   try {
     if (location === 'central') {
-      const { rows } = await pool.query("select sku, qty, 'central' as location from central_stock order by sku asc");
+      const { rows } = await pool.query("select sku, qty, is_active, 'central' as location from central_stock order by sku asc");
       return res.json({ ok:true, items: rows });
     }
     const { rows } = await pool.query('select sku, qty, store_id as location from store_stock_mirror where store_id=$1 order by sku asc', [location]);
@@ -180,8 +183,8 @@ app.get('/central/stock', async (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 500);
   try {
     const q = search ?
-      `select sku, qty from central_stock where sku ilike $1 order by sku asc limit $2` :
-      `select sku, qty from central_stock order by sku asc limit $1`;
+      `select sku, qty, is_active from central_stock where sku ilike $1 order by sku asc limit $2` :
+      `select sku, qty, is_active from central_stock order by sku asc limit $1`;
     const params = search ? ['%'+search+'%', limit] : [limit];
     const { rows } = await pool.query(q, params);
     res.json({ ok:true, items: rows });
@@ -192,14 +195,14 @@ app.get('/central/stock', async (req, res) => {
 
 // Create a new central SKU (no deletion per requirement)
 app.post('/central/sku', async (req, res) => {
-  const { sku, qty } = req.body || {};
+  const { sku, qty, is_active=true } = req.body || {};
   const nqty = Number(qty);
   if (!sku || !Number.isFinite(nqty) || nqty < 0) return res.status(400).json({ ok:false, error:'valid sku and non-negative qty required' });
   try {
     const { rows: exist } = await pool.query('select 1 from central_stock where sku=$1', [sku]);
     if (exist.length) return res.status(409).json({ ok:false, error:'sku already exists in central' });
-    await pool.query('insert into central_stock(sku, qty) values($1,$2)', [sku, nqty]);
-    res.json({ ok:true, sku, qty:nqty });
+    await pool.query('insert into central_stock(sku, qty, is_active) values($1,$2,$3)', [sku, nqty, !!is_active]);
+    res.json({ ok:true, sku, qty:nqty, is_active: !!is_active });
   } catch (e) {
     res.status(500).json({ ok:false, error:e.message });
   }
@@ -246,6 +249,19 @@ app.post('/central/adjust', async (req, res) => {
     res.status(500).json({ ok:false, error:e.message });
   } finally {
     client.release();
+  }
+});
+
+// Activate/deactivate a central SKU
+app.post('/central/active', async (req, res) => {
+  const { sku, is_active } = req.body || {};
+  if (!sku || typeof is_active !== 'boolean') return res.status(400).json({ ok:false, error:'sku and boolean is_active required' });
+  try {
+    const r = await pool.query('update central_stock set is_active=$1, updated_at=now() where sku=$2', [!!is_active, sku]);
+    if (r.rowCount === 0) return res.status(404).json({ ok:false, error:'sku not found' });
+    res.json({ ok:true, sku, is_active: !!is_active });
+  } catch (e) {
+    res.status(500).json({ ok:false, error:e.message });
   }
 });
 

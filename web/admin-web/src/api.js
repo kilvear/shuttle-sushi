@@ -111,6 +111,7 @@ export const inventory = {
   centralCreate: (sku, qty) => jpost(`${INV_BASE}/central/sku`, { sku, qty }),
   centralSet: (sku, qty) => jpost(`${INV_BASE}/central/set`, { sku, qty }),
   centralAdjust: (sku, delta) => jpost(`${INV_BASE}/central/adjust`, { sku, delta }),
+  centralActive: (sku, is_active) => jpost(`${INV_BASE}/central/active`, { sku, is_active }),
   centralSeedFromStore: (store_id='store-001') => jpost(`${INV_BASE}/central/seed-from-store`, { store_id }),
   movements: (params={}) => {
     const p = new URLSearchParams();
@@ -123,6 +124,10 @@ export const inventory = {
     return jfetch(`${INV_BASE}/movements?${p.toString()}`)
   },
   issue: (sku, qty, store_id, note) => jpost(`${INV_BASE}/central/issue`, { sku, qty, store_id, note })
+};
+
+export const store = {
+  availability: () => jfetch(`${STORE_BASE}/availability`)
 };
 
 export const menu = {

@@ -230,7 +230,16 @@ export default function App(){
           {user?.role==='manager' && (
             <div style={{ border:'1px solid #eee', borderRadius:6, padding:8, marginBottom:12 }}>
               <div style={{ fontWeight:600, marginBottom:6 }}>Create SKU (Manager)</div>
-              <CreateItemForm onCreate={async (sku,name,price)=>{ try{ await createItem(sku,name,price,true); const [a,b]=await Promise.all([fetchAvailability(), fetchItems()]); setStockList(a.items||[]); setItems(b.items||[]) } catch(e){ setError(e.message) } }} />
+              <CreateItemForm onCreate={async (sku,name,price)=>{
+                try {
+                  // Create catalog item first
+                  await createItem(sku, name, price, true)
+                  // Ensure an inventory row exists so it shows up even at qty 0
+                  try { await setStock(sku, 0) } catch {}
+                  const [a,b] = await Promise.all([fetchAvailability(), fetchItems()])
+                  setStockList(a.items||[]); setItems(b.items||[])
+                } catch(e){ setError(e.message) }
+              }} />
             </div>
           )}
           <div style={{ maxHeight:260, overflow:'auto', border:'1px solid #eee', borderRadius:6, marginBottom:12 }}>
