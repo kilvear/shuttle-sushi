@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { auth, health, inventory, menu, orders } from '../api'
+import { auth, health, inventory, menu, orders, store as storeApi } from '../api'
 import { login as authLogin, register as authRegister, me as authMe } from '../auth'
 import InventoryAdmin from './InventoryAdmin.jsx'
 import UsersAdmin from './UsersAdmin.jsx'
@@ -105,6 +105,34 @@ export default function App(){
     }
     if (rows.length > 1) downloadCSV(fnameBase, rows);
   }
+  // Persist/restore report controls
+  useEffect(() => {
+    try {
+      const p = localStorage.getItem('rep.period');
+      const g = localStorage.getItem('rep.groupby') === '1';
+      const d = Number(localStorage.getItem('rep.counts.day')) || 21;
+      const w = Number(localStorage.getItem('rep.counts.week')) || 3;
+      const m = Number(localStorage.getItem('rep.counts.month')) || 3;
+      if (p) setRepPeriod(p);
+      setRepGroupByStore(g);
+      setRepCounts({ day:d, week:w, month:m });
+    } catch {}
+  }, [])
+  useEffect(() => {
+    try {
+      localStorage.setItem('rep.period', repPeriod);
+      localStorage.setItem('rep.groupby', repGroupByStore ? '1' : '0');
+      localStorage.setItem('rep.counts.day', String(repCounts.day));
+      localStorage.setItem('rep.counts.week', String(repCounts.week));
+      localStorage.setItem('rep.counts.month', String(repCounts.month));
+    } catch {}
+  }, [repPeriod, repCounts, repGroupByStore])
+
+  const repTotals = useMemo(() => {
+    const orders = (repData||[]).reduce((a,b)=> a + Number(b.orders||0), 0)
+    const revenue_cents = (repData||[]).reduce((a,b)=> a + Number(b.revenue_cents||0), 0)
+    return { orders, revenue_cents }
+  }, [repData])
 
   const repStoreTotals = useMemo(() => {
     const rows = []
@@ -154,22 +182,23 @@ export default function App(){
           health.store().catch(e=>({ ok:false, _ms:e.ms })),
         ])
         if (!alive) return
+        const now = new Date()
         setSvc({
-          auth: { ok: !!ha.ok, ms: Math.round(ha._ms||0) },
-          menu: { ok: !!hm.ok, ms: Math.round(hm._ms||0) },
-          order: { ok: !!ho.ok, ms: Math.round(ho._ms||0) },
-          inventory: { ok: !!hi.ok, ms: Math.round(hi._ms||0) },
-          store: { ok: !!hs.ok, ms: Math.round(hs._ms||0) },
+          auth: { ok: !!ha.ok, ms: Math.round(ha._ms||0), ts: now },
+          menu: { ok: !!hm.ok, ms: Math.round(hm._ms||0), ts: now },
+          order: { ok: !!ho.ok, ms: Math.round(ho._ms||0), ts: now },
+          inventory: { ok: !!hi.ok, ms: Math.round(hi._ms||0), ts: now },
+          store: { ok: !!hs.ok, ms: Math.round(hs._ms||0), ts: now },
         })
       } catch {}
 
       try {
-        const [o, ob, c, s, m, us, ul] = await Promise.all([
+        const [o, ob, mirror, live, m, us, ul] = await Promise.all([
           orders.recent(50).catch(()=>null),
           orders.outboxSummary().catch(()=>null),
-          // Compare central vs store-001
-          inventory.stock('central').catch(()=>null),
+          // Compare mirror vs store live on dashboard
           inventory.stock('store-001').catch(()=>null),
+          storeApi.availability().catch(()=>null),
           menu.list().catch(()=>null),
           auth.usersSummary().catch(()=>null),
           auth.users(50).catch(()=>null),
@@ -177,8 +206,8 @@ export default function App(){
         if (!alive) return
         setOrd(o?.orders || [])
         setOutbox(ob)
-        setCentral(c?.items || [])
-        setStore(s?.items || [])
+        setCentral(mirror?.items || [])
+        setStore(live?.items || [])
         setCatalog(m?.items || [])
         setUserSummary(us)
         setUsers(ul?.users || [])
@@ -345,7 +374,7 @@ export default function App(){
           <label>
             <input type="checkbox" checked={repGroupByStore} onChange={e=>setRepGroupByStore(e.target.checked)} /> Group by store
           </label>
-          <button onClick={async ()=>{
+          <button disabled={repLoading} onClick={async ()=>{
             setRepLoading(true)
             try {
               const opts = repPeriod==='day' ? { days: repCounts.day }
@@ -363,7 +392,8 @@ export default function App(){
             } catch(_) { setRepData([]); setRepStoreData([]) }
             finally { setRepLoading(false) }
           }}>Generate</button>
-          <button onClick={exportReportCSV} disabled={!repLoading && (!repData.length && !repStoreData.length)}>Export CSV</button>
+          <button onClick={exportReportCSV} disabled={repLoading || (!repData.length && !repStoreData.length)}>Export CSV</button>
+          {repLoading && <span style={{ fontSize:12, color:'#555' }}>Loading…</span>}
         </div>
         <div style={{ marginTop:8 }}>
           {repLoading ? <div>Loading…</div> : (
@@ -425,6 +455,11 @@ export default function App(){
                         <td align="right">{money(b.revenue_cents)}</td>
                       </tr>
                     ))}
+                    <tr>
+                      <td style={{ fontWeight:600 }}>Totals</td>
+                      <td align="right" style={{ fontWeight:600 }}>{repTotals.orders}</td>
+                      <td align="right" style={{ fontWeight:600 }}>{money(repTotals.revenue_cents)}</td>
+                    </tr>
                   </tbody>
                 </table>
               )}
@@ -485,11 +520,11 @@ export default function App(){
       ]} />
 
       <Row cols={[
-        <Panel key="inv" title="Inventory Compare (central vs Store 1)">
+        <Panel key="inv" title="Inventory Compare (Mirror vs Store Live)">
           <div style={{ maxHeight:300, overflow:'auto' }}>
             <table width="100%" style={{ borderCollapse:'collapse' }}>
               <thead>
-                <tr><th align="left">SKU</th><th align="left">Name</th><th align="right">Central</th><th align="right">Store</th><th align="right">Drift</th></tr>
+                <tr><th align="left">SKU</th><th align="left">Name</th><th align="right">Mirror</th><th align="right">Store Live</th><th align="right">Drift</th></tr>
               </thead>
               <tbody>
                 {stockRows.map(r => (
@@ -538,12 +573,12 @@ export default function App(){
       <Panel title="Services Status">
         <div style={{ display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:8 }}>
           {['auth','menu','order','inventory','store'].map(k => (
-            <div key={k} style={{ border:'1px solid #eee', borderRadius:6, padding:8 }}>
+            <div key={k} style={{ border:'1px solid #eee', borderRadius:6, padding:8 }} title={`Last checked: ${svc[k]?.ts ? new Date(svc[k].ts).toLocaleString() : '—'}`}>
               <div style={{fontWeight:600, textTransform:'capitalize'}}>{k}</div>
               <div style={{ color: svc[k]?.ok ? '#155724' : '#721c24' }}>
                 {svc[k]?.ok ? 'UP' : 'DOWN'}
               </div>
-              <div style={{ fontSize:12, color:'#555' }}>{svc[k]?.ms ?? 0} ms</div>
+              <div style={{ fontSize:12, color:'#555' }}>{svc[k]?.ok ? `${svc[k]?.ms ?? 0} ms` : '—'}</div>
             </div>
           ))}
         </div>

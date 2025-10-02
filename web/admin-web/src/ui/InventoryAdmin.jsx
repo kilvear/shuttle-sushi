@@ -29,6 +29,7 @@ export default function InventoryAdmin(){
   const [issueQty, setIssueQty] = useState('')
   const [issueStore, setIssueStore] = useState('store-001')
   const [issueNote, setIssueNote] = useState('')
+  const [centralSetInputs, setCentralSetInputs] = useState({}) // { sku: qty }
 
   useEffect(() => {
     let alive = true
@@ -278,8 +279,16 @@ export default function InventoryAdmin(){
                         }} />
                       </td>
                       <td>
-                        <button onClick={()=>doSet(r.sku)} disabled={loading}>Set</button>{' '}
-                        <button onClick={()=>doAdjust(r.sku)} disabled={loading}>Adjust</button>
+                        <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+                          <input style={{ width:100 }} type="number" placeholder="qty" value={centralSetInputs[r.sku] ?? ''} onChange={e=>setCentralSetInputs(prev=>({ ...prev, [r.sku]: e.target.value }))} />
+                          <button onClick={async ()=>{
+                            const v = Number(centralSetInputs[r.sku])
+                            if (!Number.isFinite(v) || v < 0) return alert('Enter a non-negative number')
+                            try { setLoading(true); await inventory.centralSet(r.sku, v); const list = await inventory.centralList(search, 200); setCentralRows(list.items||[]); setCentralSetInputs(prev=>({ ...prev, [r.sku]: '' })) } catch(e){ alert(e.message) } finally { setLoading(false) }
+                          }} disabled={loading}>Apply</button>
+                          <button onClick={async ()=>{ try{ setLoading(true); await inventory.centralAdjust(r.sku, -1); const list = await inventory.centralList(search, 200); setCentralRows(list.items||[]) } catch(e){ alert(e.message) } finally{ setLoading(false) } }} disabled={loading}>-1</button>
+                          <button onClick={async ()=>{ try{ setLoading(true); await inventory.centralAdjust(r.sku, +1); const list = await inventory.centralList(search, 200); setCentralRows(list.items||[]) } catch(e){ alert(e.message) } finally{ setLoading(false) } }} disabled={loading}>+1</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
