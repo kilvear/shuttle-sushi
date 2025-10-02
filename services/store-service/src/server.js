@@ -224,12 +224,15 @@ function requireEmployee(req, res, next){
   }
 }
 
+const MAX_STORE_QTY = 1000; // cap store-level inventory to 1000
+
 // Inventory: set absolute quantity (staff/manager)
 app.post('/inventory/set', requireEmployee, async (req, res) => {
   const { sku, qty } = req.body || {};
   const nqty = Number(qty);
   if (!sku || !Number.isFinite(nqty)) return res.status(400).json({ ok:false, error:'sku and qty required' });
   if (nqty < 0) return res.status(400).json({ ok:false, error:'qty must be >= 0' });
+  if (nqty > MAX_STORE_QTY) return res.status(400).json({ ok:false, error:`qty must be <= ${MAX_STORE_QTY}` });
   try {
     const { rows: [row] } = await pool.query(
       `insert into local_stock(sku, qty) values($1,$2)
@@ -254,6 +257,7 @@ app.post('/inventory/adjust', requireEmployee, async (req, res) => {
     const current = rows.length ? Number(rows[0].qty) : 0;
     const next = current + ndelta;
     if (next < 0) { await client.query('rollback'); return res.status(400).json({ ok:false, error:'resulting qty would be negative' }); }
+    if (next > MAX_STORE_QTY) { await client.query('rollback'); return res.status(400).json({ ok:false, error:`resulting qty exceeds max ${MAX_STORE_QTY}` }); }
     const { rows: [row] } = await client.query(
       `insert into local_stock(sku, qty) values($1,$2)
        on conflict (sku) do update set qty=excluded.qty, updated_at=now()

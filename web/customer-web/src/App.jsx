@@ -121,7 +121,7 @@ export default function App(){
         setPullStart(null); setPullY(0)
       }}
     >
-      <HeaderBar user={user} onLogin={()=>setAuthOpen(true)} onLogout={()=>{localStorage.removeItem('token'); setUser(null)}} itemsCount={itemsInCart.length} onOpenCart={()=>setCartOpen(true)} />
+      <HeaderBar user={user} isLoginOpen={authOpen} onLogin={()=>setAuthOpen(true)} onLogout={()=>{localStorage.removeItem('token'); setUser(null)}} itemsCount={itemsInCart.length} onOpenCart={()=>setCartOpen(true)} />
 
       {status && <div style={{margin:'12px 16px', color: theme.successText, background: theme.successBg, padding:8, borderRadius:8}}>{status}</div>}
       {error && <div style={{margin:'12px 16px', color: theme.errorText, background: theme.errorBg, padding:8, borderRadius:8}}>Error: {error}</div>}
@@ -181,7 +181,7 @@ export default function App(){
     </div>
   )}
 
-function HeaderBar({ user, onLogin, onLogout, itemsCount, onOpenCart }){
+function HeaderBar({ user, isLoginOpen=false, onLogin, onLogout, itemsCount, onOpenCart }){
   return (
     <div style={{ position:'sticky', top:0, zIndex:10, height:56, background: theme.brandNavy, color:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 12px' }}>
       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -197,7 +197,7 @@ function HeaderBar({ user, onLogin, onLogout, itemsCount, onOpenCart }){
         {user ? (
           <button onClick={onLogout} style={{ background:'transparent', color:'#fff', border:'1px solid rgba(255,255,255,0.4)', borderRadius:8, padding:'6px 10px' }}>Logout</button>
         ) : (
-          <button onClick={onLogin} style={{ background:'transparent', color:'#fff', border:'1px solid rgba(255,255,255,0.4)', borderRadius:8, padding:'6px 10px' }}>Login</button>
+          <button onClick={onLogin} disabled={isLoginOpen} style={{ background:'transparent', color:'#fff', border:'1px solid rgba(255,255,255,0.4)', borderRadius:8, padding:'6px 10px', opacity:isLoginOpen?0.6:1 }}>Login</button>
         )}
         <button onClick={onOpenCart} style={{ position:'relative', background:'#fff', color:theme.brandNavy, border:'none', borderRadius:999, padding:'6px 12px', fontWeight:600 }}>Cart
           {itemsCount>0 && <span style={{ position:'absolute', top:-6, right:-6, background:theme.primary, color:'#fff', borderRadius:999, padding:'2px 6px', fontSize:12 }}>{itemsCount}</span>}

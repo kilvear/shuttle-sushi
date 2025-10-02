@@ -35,3 +35,20 @@ Project Stage
 Notes
 - For deeper architecture and current endpoints, see the project reports and schema documents in this repository.
 - This is a capstone project; scope and components may change as features are added.
+
+How to run (dev)
+- Backends (compose): `docker compose up -d`
+- POS Web (dev): `cd web/pos-web && npm run dev` (http://localhost:5173)
+- Customer Web (dev): `cd web/customer-web && npm run dev` (http://localhost:5174)
+- Admin Web (dev): `cd web/admin-web && npm run dev` (http://localhost:5175)
+
+E2E Smoke Test
+- From repository root: `./scripts/e2e_smoke.sh` (requires `curl` and `jq`).
+- Verifies health, order/refund propagation, mirror, and reports. Creates a PAID→CANCELLED test order and sets one SKU stock to 10.
+
+Frontend Containers (localhost)
+- Planned ports for code freeze:
+  - POS Web → http://localhost:8081
+  - Customer Web → http://localhost:8082
+  - Admin Web → http://localhost:8083
+- Frontends use hardcoded `http://localhost:300x` backend URLs; suitable for single‑machine demos.
