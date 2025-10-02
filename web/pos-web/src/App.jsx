@@ -25,6 +25,8 @@ export default function App(){
   const [setInputs, setSetInputs] = useState({}) // { sku: qty }
   const [offline, setOffline] = useState(false)
   const [showShifts, setShowShifts] = useState(false)
+  const [showAllShifts, setShowAllShifts] = useState(false)
+  const [shiftsError, setShiftsError] = useState('')
   const [shifts, setShifts] = useState([])
 
   useEffect(() => {
@@ -198,25 +200,51 @@ export default function App(){
       {user && (
         <div style={{ marginTop:24 }}>
           <h2>Shifts</h2>
+          <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
           <button onClick={async ()=>{
             if (!showShifts) {
               try {
+                setShiftsError('')
                 const from = new Date().toISOString().slice(0,10)
                 const to = new Date(Date.now()+14*864e5).toISOString().slice(0,10)
                 const r = await fetch(`http://localhost:3001/shifts?store_id=store-001&from=${from}&to=${to}&limit=100`)
-                if (r.ok) { const d = await r.json(); setShifts((d.items||[]).filter(s => (s.assignees||[]).some(a=>a.user_id===user.sub))) }
-              } catch {}
+                if (r.ok) { const d = await r.json();
+                  const items = (d.items||[])
+                  setShifts(showAllShifts ? items : items.filter(s => (s.assignees||[]).some(a=>a.user_id===user.sub)))
+                }
+                else { setShiftsError('Unable to load shifts'); }
+              } catch { setShiftsError('Unable to load shifts'); }
             }
             setShowShifts(s=>!s)
-          }}>{showShifts ? 'Hide' : 'View'} My Shifts (14 days)</button>
+          }}>{showShifts ? 'Hide' : 'View'} {showAllShifts && user.role==='manager' ? 'All Shifts' : 'My Shifts'} (14 days)</button>
+          <label style={{ fontSize:13, color:'#555' }}>
+            <input type="checkbox" checked={showAllShifts} onChange={async e=>{
+              const v = e.target.checked; setShowAllShifts(v)
+              if (showShifts) {
+                try {
+                  setShiftsError('')
+                  const from = new Date().toISOString().slice(0,10)
+                  const to = new Date(Date.now()+14*864e5).toISOString().slice(0,10)
+                  const r = await fetch(`http://localhost:3001/shifts?store_id=store-001&from=${from}&to=${to}&limit=100`)
+                  if (r.ok) { const d = await r.json(); const items = (d.items||[]); setShifts(v ? items : items.filter(s => (s.assignees||[]).some(a=>a.user_id===user.sub))) }
+                  else { setShiftsError('Unable to load shifts') }
+                } catch { setShiftsError('Unable to load shifts') }
+              }
+            }} /> Show all shifts
+          </label>
+          </div>
           {showShifts && (
             <div style={{ maxHeight:260, overflow:'auto', border:'1px solid #eee', borderRadius:6, marginTop:8 }}>
+              {shiftsError && <div style={{ color:'#721c24', background:'#f8d7da', padding:6, borderRadius:6, marginBottom:8 }}>{shiftsError}</div>}
               <table width="100%" style={{ borderCollapse:'collapse' }}>
                 <thead><tr><th align="left">Date</th><th>Start</th><th>End</th></tr></thead>
                 <tbody>
                   {shifts.map(s => (
                     <tr key={s.id}><td>{new Date(s.date).toLocaleDateString()}</td><td>{s.start_time}</td><td>{s.end_time}</td></tr>
                   ))}
+                  {shifts.length===0 && (
+                    <tr><td colSpan={3} style={{ color:'#6c757d' }}>No shifts found{!showAllShifts ? ' — enable "Show all shifts" to view all scheduled shifts' : ''}.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
